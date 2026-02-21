@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Taskable Inbox Capture</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script src="https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          'SF Pro Display',
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 14px 14px 20px;
+        background: #2d2d30;
+        color: #f4f4f5;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .hint {
+        margin: 0 0 14px;
+        font-size: 12px;
+        color: #a1a1aa;
+        line-height: 1.35;
+      }
+
+      .section {
+        margin-bottom: 10px;
+        border: 1px solid #4a4a54;
+        border-radius: 12px;
+        background: #34343a;
+        padding: 10px;
+      }
+
+      .section-title {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #d4d4d8;
+      }
+
+      .field {
+        margin-bottom: 8px;
+      }
+
+      .field:last-child {
+        margin-bottom: 0;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 11px;
+        color: #d4d4d8;
+      }
+
+      input,
+      select {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #50505a;
+        background: #2f2f35;
+        color: #f4f4f5;
+        border-radius: 8px;
+        padding: 8px;
+        font-size: 12px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 10px;
+        padding: 9px 10px;
+        background: #e63f97;
+        color: #f5bad5;
+        font-weight: 700;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: #414149;
+        color: #e4e4e7;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .row button {
+        border: 0;
+        width: 100%;
+      }
+
+      .helper {
+        margin: 0;
+        font-size: 11px;
+        color: #a1a1aa;
+      }
+
+      button:disabled {
+        opacity: 0.65;
+        cursor: default;
+      }
+
+      .session {
+        margin: 8px 0 0;
+        padding: 7px 8px;
+        border-radius: 8px;
+        border: 1px solid #51515b;
+        background: #2f2f35;
+        font-size: 11px;
+        color: #e4e4e7;
+      }
+
+      #status {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #d4d4d8;
+        min-height: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Capture Email to Taskable</h1>
+    <p class="hint">
+      Sign in with Office SSO when available, or use MSAL/password fallback, then create a
+      metadata-only inbox task from the current email.
+    </p>
+
+    <div class="section">
+      <p class="section-title">Connection</p>
+      <div class="field">
+        <label for="apiBase">Taskable API URL</label>
+        <input id="apiBase" value="http://localhost:4000" />
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Account</p>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" placeholder="you@company.com" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" placeholder="********" />
+      </div>
+      <div class="row">
+        <button id="ssoButton" type="button">Office SSO</button>
+        <button id="msalButton" type="button" class="secondary">MSAL Fallback</button>
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <button id="loginButton" type="button" class="secondary">Password</button>
+        <button id="logoutButton" type="button" class="secondary" disabled>Sign Out</button>
+      </div>
+      <div id="sessionInfo" class="session">Not signed in.</div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">MSAL Fallback Config</p>
+      <div class="field">
+        <label for="msalClientId">Microsoft App Client ID</label>
+        <input id="msalClientId" placeholder="00000000-0000-0000-0000-000000000000" />
+      </div>
+      <div class="field">
+        <label for="msalTenantId">Tenant ID or Alias</label>
+        <input id="msalTenantId" placeholder="organizations" value="organizations" />
+      </div>
+      <div class="field">
+        <label for="msalScope">Scope (optional)</label>
+        <input id="msalScope" placeholder="api://<client-id>/access_as_user" />
+      </div>
+      <p class="helper">If Scope is empty, `api://&lt;client-id&gt;/access_as_user` is used.</p>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Workspace</p>
+      <div class="field">
+        <label for="orgSelect">Select workspace</label>
+        <select id="orgSelect" disabled>
+          <option value="">Sign in to load workspaces</option>
+        </select>
+      </div>
+      <button id="refreshOrgsButton" type="button" class="secondary" disabled>
+        Refresh workspaces
+      </button>
+    </div>
+
+    <button id="captureButton" type="button" disabled>Create Inbox Task</button>
+    <div id="status">Waiting for Outlook context...</div>
+
+    <script src="./taskpane.js"></script>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+dist
+node_modules
+package-lock.json
+playwright-report
+test-results
+release
+desktop/dist
+desktop/build
+desktop/out
+desktop/release
+desktop/.cache
+desktop/.webpack
+server/.tmp

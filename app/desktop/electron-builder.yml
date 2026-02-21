@@ -1,0 +1,34 @@
+appId: com.taskable.desktop
+productName: Taskable
+buildVersion: 0.0.1
+asar: true
+publish: null
+
+directories:
+  output: release
+
+files:
+  - dist/**/*
+  - desktop/**/*
+  - package.json
+
+extraMetadata:
+  name: taskable-desktop
+  productName: Taskable
+  version: 0.0.1
+  main: desktop/main.cjs
+
+win:
+  target:
+    - nsis
+  icon: desktop/assets/tray.png
+  publisherName: Taskable
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: desktop/assets/tray.png
+  uninstallerIcon: desktop/assets/tray.png
+  installerHeaderIcon: desktop/assets/tray.png
