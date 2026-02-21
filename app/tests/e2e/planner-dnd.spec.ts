@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { bootstrapLocalMode } from './storageBootstrap';
 
 async function bootstrapDeterministicDnd(page: import('@playwright/test').Page) {
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
   await page.addInitScript(() => {
-    window.localStorage.clear();
     window.localStorage.setItem('taskable:e2e-dnd', 'true');
   });
-  await page.goto('/?e2e-dnd=1');
+  await page.goto('/planner?e2e-dnd=1');
 }
 
 async function setStartTime(page: import('@playwright/test').Page, time: string) {

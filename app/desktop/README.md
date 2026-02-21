@@ -2,7 +2,7 @@
 
 This folder contains a **thin desktop shell** over the existing Taskable React app.
 
-- Renderer: existing web app routes (`/`, `/team`, `/compact`)
+- Renderer: existing web app routes (`/` entry gate, `/planner`, `/team`, `/compact`, auth routes)
 - Desktop-only responsibilities:
   - window lifecycle
   - compact sticky window behavior
@@ -21,7 +21,7 @@ Desktop hardening checklist: `desktop/DESKTOP_SECURITY.md`
 - `mainWindow`
   - standard framed window
   - remembers bounds
-  - loads `/`
+  - loads `/` (entry gate -> `/welcome` or `/planner`)
 
 - `compactWindow`
   - frameless, resizable, small default size
@@ -53,7 +53,8 @@ Windows protocol support is registered for:
 
 - `taskable://task/<taskId>`
 
-This focuses the main window and opens the full editor flow through `/?taskId=<taskId>`.
+This focuses the main window and opens the full editor flow through the entry gate to
+`/planner?taskId=<taskId>`.
 
 ## Packaging notes
 
@@ -76,7 +77,7 @@ Installer output:
 
 ## Manual QA checklist (desktop shell)
 
-1. Run `npm run desktop:dev`, open main planner (`/`), and verify wheel/trackpad vertical scroll moves day rows up/down.
+1. Run `npm run desktop:dev`, open main planner (`/planner` after entry gate), and verify wheel/trackpad vertical scroll moves day rows up/down.
 2. In main planner, hover over the hour header (time axis) and use wheel/trackpad vertical gesture; verify it pans timeline horizontally.
 3. Move pointer away from the time header and wheel vertically; verify horizontal drift does not occur.
 4. Open compact mode, verify vertical day scrolling works and timeline horizontal pan still works from hour header.

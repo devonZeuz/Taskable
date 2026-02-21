@@ -85,3 +85,63 @@ P1 hardening sprint is complete and all required gates are green.
 2. Desktop security defaults are enforced, but production distribution hardening (code signing/update trust chain) is still pending.
 3. Conflict resolution is still single-task focused under heavy conflict bursts (batch conflict UX remains open).
 4. Dependency advisory debt remains (`npm audit` moderate issue path).
+
+## Onboarding/Auth Gating Update (Beta onboarding fix)
+
+### What changed
+
+1. Added onboarding/auth route surface:
+   - `/welcome` (default landing)
+   - `/login`
+   - `/signup`
+   - `/verify`
+   - `/forgot`
+   - `/reset`
+2. Added app entry gating:
+   - `/` now routes through auth-aware entry logic.
+   - If mode is unset: redirect to `/welcome`.
+   - If mode is `local`: redirect to `/planner`.
+   - If mode is `cloud` with token: redirect to `/planner`.
+3. Added planner route split:
+   - planner surfaces now mount from `/planner`, `/team`, `/compact`.
+   - `Root` keeps planner-only provider stack + auth gate.
+4. Added mode persistence:
+   - onboarding choice stored in `taskable:mode` (`local` | `cloud`).
+   - cloud session keys remain in `taskable:cloud-*`.
+5. Disabled automatic demo seeding:
+   - fresh storage starts with empty planner state.
+   - dev-only explicit `Load demo data` action added in planner shell.
+6. Cloud/local runtime behavior hardened:
+   - local mode performs no cloud sync network polling.
+   - cloud mode requires auth token before planner access.
+   - authenticated cloud planner runs API reachability guard; hard failures render branded error UI.
+
+### New/updated tests
+
+1. Added `tests/e2e/onboarding-auth.spec.ts`:
+   - fresh `/` -> `/welcome`
+   - continue local -> `/planner` with empty state
+   - signup route reachable from welcome
+   - cloud API failure in planner -> branded error UI
+2. Updated e2e bootstrap/routing in:
+   - `tests/e2e/planner.spec.ts`
+   - `tests/e2e/planner-dnd.spec.ts`
+   - `tests/e2e/planner-compact.spec.ts`
+   - `tests/e2e/planner-desktop-wheel.spec.ts`
+   - `tests/e2e/planner-layout-regression.spec.ts`
+   - `tests/e2e/route-error-boundary.spec.ts`
+   - `tests/e2e/settings-integrations.spec.ts`
+   - `tests/e2e/theme-sync.spec.ts`
+   - `tests/e2e/planner-cloud-sync.spec.ts`
+   - plus new helper `tests/e2e/storageBootstrap.ts`.
+
+### Gate results after onboarding/auth update
+
+1. `npm run typecheck`: PASS
+2. `npm run lint`: PASS
+3. `npm run format:check`: PASS
+4. `npm run test`: PASS
+5. `npm run test:e2e`: PASS
+6. `npm run test:e2e:cloud`: PASS
+7. `npm run build`: PASS
+8. `npm run perf:check`: PASS

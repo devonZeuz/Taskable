@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test';
-
-async function clearStorage(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    window.localStorage.clear();
-  });
-}
+import { bootstrapLocalMode } from './storageBootstrap';
 
 async function openTaskEditor(page: import('@playwright/test').Page, taskTitle: string) {
   await page.locator(`[data-task-title="${taskTitle}"] h3`).first().click();
@@ -28,8 +23,8 @@ async function openTaskQuickActions(page: import('@playwright/test').Page, taskT
 }
 
 test.beforeEach(async ({ page }) => {
-  await clearStorage(page);
-  await page.goto('/');
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
+  await page.goto('/planner');
 });
 
 test('creates a task from dialog', async ({ page }) => {

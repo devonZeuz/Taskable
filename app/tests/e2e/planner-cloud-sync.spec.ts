@@ -79,6 +79,7 @@ async function createSeededPage(browser: Browser, seed: CloudSessionSeed): Promi
         {
           origin: APP_ORIGIN,
           localStorage: [
+            { name: 'taskable:mode', value: 'cloud' },
             { name: 'taskable:cloud-token', value: seed.token },
             { name: 'taskable:cloud-refresh-token', value: seed.refreshToken },
             { name: 'taskable:cloud-org-id', value: seed.orgId },
@@ -89,7 +90,7 @@ async function createSeededPage(browser: Browser, seed: CloudSessionSeed): Promi
     },
   });
   const page = await context.newPage();
-  await page.goto('/');
+  await page.goto('/planner');
   await expect
     .poll(async () =>
       page.evaluate(() => ({

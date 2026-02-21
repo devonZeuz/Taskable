@@ -1,16 +1,16 @@
-import { Outlet, Link, useLocation, useNavigate } from 'react-router';
+import { Outlet, Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { TaskProvider, useTasks } from '../context/TaskContext';
 import { TeamMembersProvider } from '../context/TeamMembersContext';
 import { WorkdayProvider } from '../context/WorkdayContext';
-import { AppThemeProvider } from '../context/AppThemeContext';
 import { NotificationSettingsProvider } from '../context/NotificationSettingsContext';
 import { CloudSyncProvider, useCloudSync } from '../context/CloudSyncContext';
 import { UserPreferencesProvider, useUserPreferences } from '../context/UserPreferencesContext';
+import { useOnboarding } from '../context/OnboardingContext';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { Minimize2, Users, User } from 'lucide-react';
 import { Button } from './ui/button';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   desktopCloseCompact,
@@ -18,9 +18,12 @@ import {
   desktopToggleCompact,
   isDesktopShell,
 } from '../services/desktopShell';
+import { CLOUD_API_BASE_URL, CLOUD_SYNC_ENABLED } from '../services/cloudApi';
+import type { PlannerMode } from '../services/authStorage';
 
 export default function Root() {
   const location = useLocation();
+  const { mode, isCloudAuthenticated } = useOnboarding();
   const isTeamView = location.pathname === '/team';
   const isCompactRoute = location.pathname === '/compact';
   const isDesktopMode = isDesktopShell();
@@ -29,84 +32,95 @@ export default function Root() {
     typeof navigator.userAgent === 'string' &&
     navigator.userAgent.includes('Electron');
   const shouldScaleUi = !isCompactRoute && !isDesktopMode && !isElectronRuntime;
+  const returnTo = `${location.pathname}${location.search}`;
+
+  if (mode !== 'local' && mode !== 'cloud') {
+    return <Navigate to="/welcome" replace state={{ from: returnTo }} />;
+  }
+
+  if (mode === 'cloud' && !isCloudAuthenticated) {
+    return <Navigate to="/login" replace state={{ from: returnTo }} />;
+  }
+
+  const plannerMode = mode;
 
   return (
-    <AppThemeProvider>
-      <UserPreferencesProvider>
-        <DndProvider backend={HTML5Backend}>
-          <WorkdayProvider>
-            <TeamMembersProvider>
-              <TaskProvider>
-                <CloudSyncProvider>
-                  <NotificationSettingsProvider>
-                    <TaskHotkeys />
-                    <CompactModeHotkeys />
-                    <CloudSyncErrorToasts />
-                    <div
-                      data-testid="app-shell"
-                      className="relative flex h-full min-h-screen min-h-[100dvh] flex-col bg-background"
-                    >
-                      <div className="flex min-h-0 flex-1 flex-col">
-                        <div className={shouldScaleUi ? 'app-scale' : 'h-full'}>
-                          <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--board-bg)] text-[var(--board-text)]">
-                            <main className="flex-1 min-h-0 overflow-hidden">
-                              <Outlet />
-                            </main>
+    <UserPreferencesProvider>
+      <DndProvider backend={HTML5Backend}>
+        <WorkdayProvider>
+          <TeamMembersProvider>
+            <TaskProvider>
+              <CloudSyncProvider mode={plannerMode}>
+                <NotificationSettingsProvider>
+                  <TaskHotkeys />
+                  <CompactModeHotkeys />
+                  <CloudSessionRuntimeGuard plannerMode={plannerMode} />
+                  <CloudSyncErrorToasts />
+                  <DevDemoDataButton plannerMode={plannerMode} isCompactRoute={isCompactRoute} />
+                  <div
+                    data-testid="app-shell"
+                    className="relative flex h-full min-h-screen min-h-[100dvh] flex-col bg-background"
+                  >
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div className={shouldScaleUi ? 'app-scale' : 'h-full'}>
+                        <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--board-bg)] text-[var(--board-text)]">
+                          <main className="flex-1 min-h-0 overflow-hidden">
+                            <Outlet />
+                          </main>
 
-                            {!isCompactRoute && (
-                              <>
-                                <div className="pointer-events-none absolute top-3 left-1/2 z-30 -translate-x-1/2 md:top-5">
-                                  <CompactLauncher />
-                                </div>
+                          {!isCompactRoute && (
+                            <>
+                              <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 md:top-5">
+                                <CompactLauncher />
+                              </div>
 
-                                <div className="pointer-events-none absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
-                                  <div className="ui-hud-shell pointer-events-auto flex items-center gap-2 rounded-[16px] p-2">
-                                    <Link to="/">
-                                      <Button
-                                        data-testid="nav-personal"
-                                        variant="ghost"
-                                        size="sm"
-                                        className={`h-10 gap-2 rounded-[11px] border px-4 ${
-                                          !isTeamView
-                                            ? 'ui-hud-btn-soft'
-                                            : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
-                                        }`}
-                                      >
-                                        <User className="size-4" />
-                                        Personal
-                                      </Button>
-                                    </Link>
-                                    <Link to="/team">
-                                      <Button
-                                        data-testid="nav-team"
-                                        variant="ghost"
-                                        size="sm"
-                                        className={`h-10 gap-2 rounded-[11px] border px-4 ${
-                                          isTeamView
-                                            ? 'ui-hud-btn-soft'
-                                            : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
-                                        }`}
-                                      >
-                                        <Users className="size-4" />
-                                        Team
-                                      </Button>
-                                    </Link>
-                                  </div>
+                              <div className="pointer-events-none absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
+                                <div className="ui-hud-shell pointer-events-auto flex items-center gap-2 rounded-[16px] p-2">
+                                  <Link to="/planner">
+                                    <Button
+                                      data-testid="nav-personal"
+                                      variant="ghost"
+                                      size="sm"
+                                      className={`h-10 gap-2 rounded-[11px] border px-4 ${
+                                        !isTeamView
+                                          ? 'ui-hud-btn-soft'
+                                          : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
+                                      }`}
+                                    >
+                                      <User className="size-4" />
+                                      Personal
+                                    </Button>
+                                  </Link>
+                                  <Link to="/team">
+                                    <Button
+                                      data-testid="nav-team"
+                                      variant="ghost"
+                                      size="sm"
+                                      className={`h-10 gap-2 rounded-[11px] border px-4 ${
+                                        isTeamView
+                                          ? 'ui-hud-btn-soft'
+                                          : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
+                                      }`}
+                                    >
+                                      <Users className="size-4" />
+                                      Team
+                                    </Button>
+                                  </Link>
                                 </div>
-                              </>
-                            )}
-                          </div>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
-                  </NotificationSettingsProvider>
-                </CloudSyncProvider>
-              </TaskProvider>
-            </TeamMembersProvider>
-          </WorkdayProvider>
-        </DndProvider>
-      </UserPreferencesProvider>
-    </AppThemeProvider>
+                  </div>
+                </NotificationSettingsProvider>
+              </CloudSyncProvider>
+            </TaskProvider>
+          </TeamMembersProvider>
+        </WorkdayProvider>
+      </DndProvider>
+    </UserPreferencesProvider>
   );
 }
 
@@ -329,7 +343,7 @@ function CompactModeHotkeys() {
         return;
       }
 
-      navigate('/');
+      navigate('/planner');
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -379,4 +393,95 @@ function CloudSyncErrorToasts() {
   }, [error]);
 
   return null;
+}
+
+function CloudSessionRuntimeGuard({ plannerMode }: { plannerMode: PlannerMode }) {
+  const [runtimeError, setRuntimeError] = useState<Error | null>(null);
+  const lastCheckKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (plannerMode !== 'cloud' || !CLOUD_SYNC_ENABLED) {
+      setRuntimeError(null);
+      lastCheckKeyRef.current = null;
+      return;
+    }
+    const endpoint = CLOUD_API_BASE_URL ? `${CLOUD_API_BASE_URL}/api/me` : '/api/me';
+    const checkKey = `${plannerMode}:${endpoint}`;
+    if (lastCheckKeyRef.current === checkKey) return;
+
+    let cancelled = false;
+    lastCheckKeyRef.current = checkKey;
+
+    const verifyCloudRuntime = async () => {
+      try {
+        const response = await fetch(endpoint, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (response.status >= 500) {
+          throw new Error(`Cloud API responded with ${response.status}.`);
+        }
+        if (!cancelled) {
+          setRuntimeError(null);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Failed to reach cloud API from planner runtime.';
+        setRuntimeError(new Error(`Cloud runtime check failed: ${message}`));
+      }
+    };
+
+    void verifyCloudRuntime();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [plannerMode]);
+
+  if (runtimeError) {
+    throw runtimeError;
+  }
+
+  return null;
+}
+
+function DevDemoDataButton({
+  plannerMode,
+  isCompactRoute,
+}: {
+  plannerMode: PlannerMode;
+  isCompactRoute: boolean;
+}) {
+  const { tasks, loadDemoData } = useTasks();
+
+  if (!import.meta.env.DEV || plannerMode !== 'local' || isCompactRoute) {
+    return null;
+  }
+
+  const onLoadDemoData = () => {
+    if (tasks.length > 0) {
+      const shouldReplace = window.confirm(
+        'Load demo data? This replaces the current local task list in this window.'
+      );
+      if (!shouldReplace) return;
+    }
+    loadDemoData();
+    toast.success('Demo data loaded.');
+  };
+
+  return (
+    <div className="pointer-events-none absolute right-3 top-3 z-30 md:right-5 md:top-5">
+      <Button
+        type="button"
+        data-testid="load-demo-data"
+        onClick={onLoadDemoData}
+        className="pointer-events-auto ui-hud-btn h-8 rounded-[10px] px-3 text-[11px]"
+      >
+        Load demo data
+      </Button>
+    </div>
+  );
 }

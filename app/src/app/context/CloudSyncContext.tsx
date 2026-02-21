@@ -26,6 +26,14 @@ import {
 } from '../services/syncMerge';
 import { recordOperationalEvent } from '../services/operationalTelemetry';
 import { requestOpenConflictResolver } from '../services/settingsBridge';
+import {
+  CLOUD_AUTO_SYNC_STORAGE_KEY as AUTO_SYNC_STORAGE_KEY,
+  CLOUD_ORG_STORAGE_KEY as ORG_STORAGE_KEY,
+  CLOUD_REFRESH_TOKEN_STORAGE_KEY as REFRESH_TOKEN_STORAGE_KEY,
+  CLOUD_TOKEN_STORAGE_KEY as TOKEN_STORAGE_KEY,
+  notifyAuthStorageUpdated,
+  type PlannerMode,
+} from '../services/authStorage';
 
 type RealtimeState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 type SyncTransport = 'disconnected' | 'polling' | 'sse';
@@ -167,10 +175,6 @@ interface CloudSyncContextType {
   pushTasks: () => Promise<void>;
 }
 
-const TOKEN_STORAGE_KEY = 'taskable:cloud-token';
-const REFRESH_TOKEN_STORAGE_KEY = 'taskable:cloud-refresh-token';
-const ORG_STORAGE_KEY = 'taskable:cloud-org-id';
-const AUTO_SYNC_STORAGE_KEY = 'taskable:cloud-auto-sync';
 const CLOUD_POLL_INTERVAL_MS = 2500;
 const CLOUD_CONNECTED_HEARTBEAT_POLL_MS = 3000;
 const PRESENCE_HEARTBEAT_TTL_MS = 16000;
@@ -394,7 +398,13 @@ function toCloudSyncIssue(
   };
 }
 
-export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
+export function CloudSyncProvider({
+  children,
+  mode,
+}: {
+  children: React.ReactNode;
+  mode: PlannerMode;
+}) {
   const { tasks, replaceTasks } = useTasks();
   const [token, setToken] = useState<string | null>(() => loadStoredToken());
   const [refreshToken, setRefreshToken] = useState<string | null>(() => loadStoredRefreshToken());
@@ -429,7 +439,8 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   const tokenRef = useRef<string | null>(token);
   const refreshTokenRef = useRef<string | null>(refreshToken);
 
-  const enabled = CLOUD_SYNC_ENABLED;
+  const cloudModeEnabled = CLOUD_SYNC_ENABLED && mode === 'cloud';
+  const enabled = cloudModeEnabled && Boolean(token);
   const hasUnsyncedLocalChanges = useCallback(() => {
     if (lastSyncedHashRef.current === null) return false;
     return computeTaskHash(tasksRef.current) !== lastSyncedHashRef.current;
@@ -462,7 +473,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   }, [replaceTasks]);
 
   const performTokenRefresh = useCallback(async () => {
-    if (!enabled) return null;
+    if (!cloudModeEnabled) return null;
     const currentRefresh = refreshTokenRef.current;
     if (!currentRefresh) return null;
 
@@ -499,7 +510,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       claimedPresenceKeysRef.current.clear();
       return null;
     }
-  }, [enabled]);
+  }, [cloudModeEnabled]);
 
   const requestWithToken = useCallback(
     async <T,>(
@@ -621,6 +632,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore storage errors
     }
+    notifyAuthStorageUpdated();
   }, [token]);
 
   useEffect(() => {
@@ -634,6 +646,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore storage errors
     }
+    notifyAuthStorageUpdated();
   }, [refreshToken]);
 
   useEffect(() => {
@@ -667,6 +680,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore storage errors
     }
+    notifyAuthStorageUpdated();
   }, [activeOrgId]);
 
   useEffect(() => {
@@ -722,7 +736,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshSession = useCallback(async () => {
-    if (!enabled) return;
+    if (!cloudModeEnabled) return;
     if (!tokenRef.current) {
       const refreshed = await performTokenRefresh();
       if (!refreshed) return;
@@ -754,7 +768,14 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, [enabled, requestWithToken, activeOrgId, performTokenRefresh, clearSyncIssue, setSyncIssue]);
+  }, [
+    cloudModeEnabled,
+    requestWithToken,
+    activeOrgId,
+    performTokenRefresh,
+    clearSyncIssue,
+    setSyncIssue,
+  ]);
 
   useEffect(() => {
     void refreshSession();
@@ -767,7 +788,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string, options?: CloudLoginOptions) => {
-      if (!enabled) return;
+      if (!cloudModeEnabled) return;
       setSyncing(true);
       clearSyncIssue();
       try {
@@ -799,12 +820,12 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
         setSyncing(false);
       }
     },
-    [enabled, clearSyncIssue, setSyncIssue]
+    [cloudModeEnabled, clearSyncIssue, setSyncIssue]
   );
 
   const register = useCallback(
     async (name: string, email: string, password: string) => {
-      if (!enabled) return;
+      if (!cloudModeEnabled) return;
       setSyncing(true);
       clearSyncIssue();
       try {
@@ -835,7 +856,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
         setSyncing(false);
       }
     },
-    [enabled, clearSyncIssue, setSyncIssue]
+    [cloudModeEnabled, clearSyncIssue, setSyncIssue]
   );
 
   const logout = useCallback(() => {
@@ -877,7 +898,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
 
   const resendVerification = useCallback(
     async (email?: string) => {
-      if (!enabled) return;
+      if (!cloudModeEnabled) return;
       const targetEmail = email ?? user?.email;
       if (!targetEmail) {
         throw new Error('Email is required.');
@@ -887,42 +908,42 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
         body: { email: targetEmail },
       });
     },
-    [enabled, user?.email]
+    [cloudModeEnabled, user?.email]
   );
 
   const verifyEmailToken = useCallback(
     async (verificationToken: string) => {
-      if (!enabled) return;
+      if (!cloudModeEnabled) return;
       await cloudRequest('/api/auth/verify-email', {
         method: 'POST',
         body: { token: verificationToken },
       });
       await refreshSession();
     },
-    [enabled, refreshSession]
+    [cloudModeEnabled, refreshSession]
   );
 
   const requestPasswordReset = useCallback(
     async (email: string) => {
-      if (!enabled) return;
+      if (!cloudModeEnabled) return;
       await cloudRequest('/api/auth/request-password-reset', {
         method: 'POST',
         body: { email },
       });
     },
-    [enabled]
+    [cloudModeEnabled]
   );
 
   const resetPassword = useCallback(
     async (resetToken: string, newPassword: string) => {
-      if (!enabled) return;
+      if (!cloudModeEnabled) return;
       await cloudRequest('/api/auth/reset-password', {
         method: 'POST',
         body: { token: resetToken, password: newPassword },
       });
       logout();
     },
-    [enabled, logout]
+    [cloudModeEnabled, logout]
   );
 
   const startMfaEnrollment = useCallback(async () => {

@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { bootstrapLocalMode } from './storageBootstrap';
 
 test('app shell fills viewport and body paints app theme background', async ({ page }) => {
-  await page.goto('/');
+  await bootstrapLocalMode(page);
+  await page.goto('/planner');
   await expect(page.locator('[data-day-row]').first()).toBeVisible();
 
   const layout = await page.evaluate(() => {
@@ -29,7 +31,9 @@ test('app shell fills viewport and body paints app theme background', async ({ p
 test('overlap + scroll + resize keeps task cards within planner layout bounds', async ({
   page,
 }) => {
+  await bootstrapLocalMode(page);
   await page.addInitScript(() => {
+    localStorage.setItem('taskable:mode', 'local');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const makeTask = (
@@ -74,7 +78,7 @@ test('overlap + scroll + resize keeps task cards within planner layout bounds', 
     );
   });
 
-  await page.goto('/');
+  await page.goto('/planner');
   await expect(page.getByTestId('task-card-ov1')).toBeVisible();
   await expect(page.getByTestId('task-card-ov2')).toBeVisible();
   await expect(page.getByTestId('task-card-ov3')).toBeVisible();

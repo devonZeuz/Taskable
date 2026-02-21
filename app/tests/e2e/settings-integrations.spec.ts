@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { bootstrapLocalMode } from './storageBootstrap';
 
 test('integration credentials inputs are interactive inside settings dialog', async ({ page }) => {
-  await page.goto('/');
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
+  await page.goto('/planner');
 
   await page
     .getByRole('button', { name: /Settings/i })

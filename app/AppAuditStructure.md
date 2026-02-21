@@ -1,6 +1,6 @@
 # AppAuditStructure
 
-Last updated: 2026-02-21 (rev 7)
+Last updated: 2026-02-21 (rev 8)
 
 This document is the current source of truth for GPT-style product/architecture audits of Taskable.
 
@@ -9,11 +9,13 @@ This document is the current source of truth for GPT-style product/architecture 
 Taskable is now a hybrid local-first + cloud-enabled planning app:
 
 - Frontend: React + Vite + TypeScript single-page app with `Personal` and `Team` routes.
+- Onboarding/auth gate: new public auth surface (`/welcome`, `/login`, `/signup`, `/verify`, `/forgot`, `/reset`) with planner entry gating (`/` -> `/welcome` or `/planner` based on mode/session).
 - Core UX: drag/drop scheduling grid with 15-minute snapping, resizing, stacking, hover-dwell shove, inbox unscheduling, and daily planning workflow.
 - Compact UX: `/compact` route for fast visual tracking with simplified read-only task cards (title + time only) and deep-link back to full editor.
 - Capture UX: external drag/drop capture from Outlook/email payloads into Inbox or directly onto day/time grid (subject/title parsed into task title).
 - Visual system: theme-driven HUD/cards with `default`, `mono` (true black/white, readability-tuned), and `sugar-plum` palettes.
 - Persistence: localStorage by default, optional cloud sync to a Node/Express/SQLite backend with auth, MFA, and org scoping.
+- Startup policy: fresh sessions no longer auto-seed demo tasks; planner starts empty unless user loads demo data explicitly in development mode.
 - Quality gates: typecheck, lint, format check, unit tests, E2E tests, and CI workflow are wired; all current unit + e2e suites are passing, including advanced deterministic drag/resize/shove coverage.
 - Collaboration: SSE-first realtime transport with reconnect/polling fallback, optimistic concurrency on task writes, strict conflict-resolution UI, server-enforced presence locks with takeover flow, and one-time scoped SSE stream tokens.
 - Conflict guardrails: mutation surfaces now hard-stop on conflict-locked tasks with resolver handoff, persistent planner conflict banner, and conflict entered/resolved telemetry timings.
@@ -64,6 +66,7 @@ app/
       data/
       services/
   tests/e2e/planner.spec.ts
+  tests/e2e/onboarding-auth.spec.ts
   tests/e2e/planner-dnd.spec.ts
   tests/e2e/planner-cloud-sync.spec.ts
 ```
@@ -73,32 +76,41 @@ app/
 ### 3.1 Frontend boot
 
 1. `src/main.tsx` mounts app.
-2. `src/app/App.tsx` renders router + global toaster.
+2. `src/app/App.tsx` wraps `AppThemeProvider` + `OnboardingProvider`, then renders router + toaster.
 3. `src/app/routes.ts` defines:
-   - `/` -> `PersonalView`
-   - `/team` -> `TeamView`
-   - `/compact` -> `CompactView`
+   - `/` -> auth-aware entry route (`/welcome` or `/planner`)
+   - public onboarding/auth routes: `/welcome`, `/login`, `/signup`, `/verify`, `/forgot`, `/reset`
+   - planner routes behind `Root` gate: `/planner`, `/team`, `/compact`
    - root + child route `errorElement` boundaries for branded recovery UI on lazy/runtime failures
 
 ### 3.2 Provider stack
 
-Defined in `src/app/components/Root.tsx`:
+Global app providers in `src/app/App.tsx`:
 
 ```text
 AppThemeProvider
-  DndProvider(HTML5Backend)
-    WorkdayProvider
-      TeamMembersProvider
-        TaskProvider
-          CloudSyncProvider
-            NotificationSettingsProvider
-              Route Outlet
+  OnboardingProvider
+    RouterProvider
+```
+
+Planner-only provider stack in `src/app/components/Root.tsx`:
+
+```text
+DndProvider(HTML5Backend)
+  WorkdayProvider
+    TeamMembersProvider
+      TaskProvider
+        CloudSyncProvider(mode-aware)
+          NotificationSettingsProvider
+            Route Outlet
 ```
 
 Also in `Root.tsx`:
 
 - global bottom route switcher (`Personal` / `Team`)
 - global keyboard undo/redo (`Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z`, `Ctrl/Cmd+Y`)
+- cloud runtime reachability guard for authenticated cloud planner sessions (renders branded error UI on hard API reachability failures)
+- dev-only `Load demo data` action (explicit opt-in; no automatic seeding)
 
 ## 4. Domain Model
 
@@ -159,7 +171,13 @@ Tables in `server/src/db.js`:
 - `taskable-removed-default-team-members`
 - `taskable:app-theme`
 - `taskable:notifications-enabled`
+- `taskable:mode` (`local` | `cloud`)
 - cloud session keys (`taskable:cloud-token`, `taskable:cloud-refresh-token`, `taskable:cloud-org-id`, `taskable:cloud-auto-sync`)
+
+Seed policy:
+
+- no automatic sample/demo task seeding on fresh storage (all environments)
+- development builds expose an explicit `Load demo data` control in planner shell for manual seeding
 
 ### 5.2 Backup import/export
 
@@ -178,6 +196,9 @@ Tables in `server/src/db.js`:
 `src/app/context/CloudSyncContext.tsx`:
 
 - feature-flagged by `VITE_ENABLE_CLOUD_SYNC`
+- mode-gated by onboarding (`taskable:mode`):
+  - `local`: cloud sync provider remains mounted but performs no network sync/auth polling
+  - `cloud`: cloud sync activates only after token/session is present
 - auth: register/login/logout + `/api/me` session refresh
 - refresh-token rotation endpoint support (`/api/auth/refresh`) with persisted refresh token
 - lifecycle controls exposed in cloud UI:
@@ -406,7 +427,7 @@ Folder: `desktop/`
 
 Scope:
 
-- thin shell only; renderer stays the existing web app (`/`, `/team`, `/compact`)
+- thin shell only; renderer stays the existing web app (`/` entry gate, `/planner`, `/team`, `/compact`, auth routes)
 - no duplicated planner/sync/scheduling/domain logic in desktop code
 
 Windows:
@@ -414,7 +435,7 @@ Windows:
 - `mainWindow`
   - framed
   - remembers bounds
-  - loads `/`
+  - loads `/` (entry gate -> `/welcome` or `/planner` depending on onboarding mode/session)
 - `compactWindow`
   - frameless
   - resizable
@@ -442,7 +463,7 @@ IPC channels:
 
 Deep-link protocol:
 
-- `taskable://task/<taskId>` -> focuses main window and routes to `/?taskId=<taskId>`
+- `taskable://task/<taskId>` -> focuses main window and routes through entry gate to `/planner?taskId=<taskId>` for editor deep-link
 
 Desktop persistence (separate file in Electron `userData`):
 
@@ -528,6 +549,13 @@ E2E tests (`tests/e2e/planner.spec.ts`):
 - auto-place from planning panel
 - undo/redo shortcuts
 
+Onboarding/auth E2E tests (`tests/e2e/onboarding-auth.spec.ts`):
+
+- fresh browser `/` lands on `/welcome`
+- `Continue locally` enters `/planner` with empty state (no auto-seeded tasks)
+- signup route is reachable from welcome flow
+- cloud mode API reachability failure in planner renders branded route error UI
+
 Compact E2E tests (`tests/e2e/planner-compact.spec.ts`):
 
 - compact route loads with expected day/task rendering
@@ -552,7 +580,7 @@ Advanced deterministic interaction E2E (`tests/e2e/planner-dnd.spec.ts`):
 
 Current E2E status (as of 2026-02-21):
 
-- passing: all core planner and advanced deterministic interaction suites
+- passing: onboarding/auth gate suite + core planner suites + advanced deterministic interaction suites
 - passing: dedicated two-client cloud sync suite (`npm run test:e2e:cloud`)
 - passing: desktop/runtime parity suites (`planner-desktop-wheel`, `theme-sync`, `settings-integrations`, `planner-layout-regression`)
 

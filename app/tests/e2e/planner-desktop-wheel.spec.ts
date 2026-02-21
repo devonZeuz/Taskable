@@ -40,6 +40,7 @@ async function mockDesktopShell(page: import('@playwright/test').Page) {
     };
 
     window.localStorage.clear();
+    window.localStorage.setItem('taskable:mode', 'local');
   });
 }
 
@@ -135,7 +136,7 @@ test('board-scroll overflows vertically and wheel over day grid increases scroll
 }) => {
   await mockDesktopShell(page);
 
-  await page.goto('/');
+  await page.goto('/planner');
   await expect(page.locator('[data-day-row]').first()).toBeVisible();
 
   const before = await getBoardScrollState(page);
@@ -151,7 +152,7 @@ test('board-scroll overflows vertically and wheel over day grid increases scroll
 test('shift+wheel over timeline header increases board scrollLeft', async ({ page }) => {
   await mockDesktopShell(page);
 
-  await page.goto('/');
+  await page.goto('/planner');
   await expect(page.locator('[data-day-row]').first()).toBeVisible();
 
   const before = await getBoardScrollState(page);
@@ -170,7 +171,7 @@ test('wheel over timeline header without shift keeps vertical board scrolling', 
 }) => {
   await mockDesktopShell(page);
 
-  await page.goto('/');
+  await page.goto('/planner');
   await expect(page.locator('[data-day-row]').first()).toBeVisible();
 
   const before = await getBoardScrollState(page);

@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { bootstrapLocalMode } from './storageBootstrap';
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(() => {
-    window.localStorage.clear();
-  });
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
   await page.goto('/compact');
 });
 
@@ -44,6 +42,7 @@ test('open full button leaves compact route', async ({ page }) => {
 
 test('desktop compact mode limits layout to two days', async ({ page }) => {
   await page.addInitScript(() => {
+    window.localStorage.setItem('taskable:mode', 'local');
     const state = {
       isDesktop: true,
       compactVisible: false,

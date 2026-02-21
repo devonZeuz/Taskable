@@ -185,7 +185,7 @@ export default function CompactView() {
 
       if (typeof window !== 'undefined' && window.opener && !window.opener.closed) {
         try {
-          window.opener.location.assign(`${window.location.origin}/${search}`);
+          window.opener.location.assign(`${window.location.origin}/planner${search}`);
           window.opener.focus();
           window.close();
           return;
@@ -195,11 +195,11 @@ export default function CompactView() {
       }
 
       if (typeof window !== 'undefined') {
-        window.location.assign(`${window.location.origin}/${search}`);
+        window.location.assign(`${window.location.origin}/planner${search}`);
         return;
       }
 
-      navigate({ pathname: '/', search });
+      navigate({ pathname: '/planner', search });
     },
     [navigate, setPreference]
   );

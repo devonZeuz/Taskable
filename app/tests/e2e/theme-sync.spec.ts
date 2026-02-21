@@ -2,11 +2,15 @@ import { expect, test } from '@playwright/test';
 
 test('compact window reacts to cross-window theme storage updates', async ({ browser }) => {
   const context = await browser.newContext();
+  await context.addInitScript(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem('taskable:mode', 'local');
+  });
   const fullPage = await context.newPage();
   const compactPage = await context.newPage();
 
   try {
-    await fullPage.goto('/');
+    await fullPage.goto('/planner');
     await compactPage.goto('/compact');
     await expect(compactPage.getByTestId('compact-view')).toBeVisible();
 

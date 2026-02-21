@@ -1,9 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { bootstrapLocalMode } from './storageBootstrap';
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.clear();
-  });
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
 });
 
 test('shows branded recovery UI when lazy route chunk fails', async ({ page }) => {
@@ -24,7 +23,7 @@ test('shows branded recovery UI when lazy route chunk fails', async ({ page }) =
     await route.continue();
   });
 
-  await page.goto('/');
+  await page.goto('/planner');
   abortNextChunk = true;
   await page.getByTestId('nav-team').click();
 

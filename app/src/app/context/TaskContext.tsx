@@ -62,6 +62,7 @@ interface TaskContextType {
   nowTimestamp: number;
   setSelectedTaskId: (taskId: string | null) => void;
   clearSelectedTask: () => void;
+  loadDemoData: () => void;
   addTask: (task: Omit<Task, 'id'>) => Task;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
@@ -331,7 +332,7 @@ function areTaskListsEqual(a: Task[], b: Task[]): boolean {
 
 function loadTasks(): Task[] {
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return generateInitialTasks();
+  if (!stored) return [];
 
   try {
     const parsed = JSON.parse(stored) as StoredTasks | LegacyTask[];
@@ -351,10 +352,10 @@ function loadTasks(): Task[] {
       return migrateLegacyTasks(parsed.tasks as unknown as LegacyTask[]);
     }
   } catch {
-    return generateInitialTasks();
+    return [];
   }
 
-  return generateInitialTasks();
+  return [];
 }
 
 const generateInitialTasks = (): Task[] => {
@@ -985,6 +986,10 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     setSelectedTaskId(null);
   }, []);
 
+  const loadDemoData = useCallback(() => {
+    dispatch({ type: 'replace', tasks: generateInitialTasks(), clearHistory: true });
+  }, []);
+
   return (
     <TaskContext.Provider
       value={{
@@ -993,6 +998,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         nowTimestamp,
         setSelectedTaskId,
         clearSelectedTask,
+        loadDemoData,
         addTask,
         updateTask,
         deleteTask,
