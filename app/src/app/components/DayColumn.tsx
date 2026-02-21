@@ -1232,6 +1232,7 @@ export default function DayColumn({
 
       {nowIndicatorX !== null && (
         <div
+          data-testid="timeline-now-indicator"
           className="pointer-events-none absolute inset-y-0 z-[6]"
           style={{ left: `${nowIndicatorX}px` }}
           aria-hidden="true"

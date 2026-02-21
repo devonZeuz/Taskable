@@ -7,6 +7,8 @@ interface CloudSessionSeed {
   token: string;
   refreshToken: string;
   orgId: string;
+  email: string;
+  password: string;
 }
 
 interface SeededPage {
@@ -36,11 +38,13 @@ async function registerCloudUser(
   request: import('@playwright/test').APIRequestContext
 ): Promise<CloudSessionSeed> {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const password = 'TaskableE2E#123';
+  const email = `cloud-e2e-${suffix}@taskable.test`;
   const response = await request.post(`${API_URL}/api/auth/register`, {
     data: {
       name: `Cloud E2E ${suffix}`,
-      email: `cloud-e2e-${suffix}@taskable.test`,
-      password: 'TaskableE2E#123',
+      email,
+      password,
     },
   });
 
@@ -62,6 +66,8 @@ async function registerCloudUser(
     token,
     refreshToken: payload.refreshToken,
     orgId: payload.defaultOrgId,
+    email,
+    password,
   };
 }
 
@@ -275,6 +281,28 @@ test('syncs create/update/delete across two live clients without refresh', async
     await pageASeed.context.close();
     await pageBSeed.context.close();
   }
+});
+
+test('supports re-login after signup with case-insensitive + trimmed email lookup', async ({
+  request,
+}) => {
+  const session = await registerCloudUser(request);
+  const mixedCaseEmail = `  ${session.email.replace('cloud-e2e', 'Cloud-E2E')}  `;
+
+  const response = await request.post(`${API_URL}/api/auth/login`, {
+    data: {
+      email: mixedCaseEmail,
+      password: session.password,
+    },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const payload = (await response.json()) as {
+    token?: string;
+    accessToken?: string;
+    refreshToken?: string;
+  };
+  expect(payload.accessToken ?? payload.token).toBeTruthy();
+  expect(payload.refreshToken).toBeTruthy();
 });
 
 test('deduplicates end prompt acknowledgements for the same running task', async ({ request }) => {

@@ -20,6 +20,7 @@ import {
 } from '../services/desktopShell';
 import { CLOUD_API_BASE_URL, CLOUD_SYNC_ENABLED } from '../services/cloudApi';
 import type { PlannerMode } from '../services/authStorage';
+import OnboardingTutorialModal from './onboarding/OnboardingTutorialModal';
 
 export default function Root() {
   const location = useLocation();
@@ -57,6 +58,10 @@ export default function Root() {
                   <CloudSessionRuntimeGuard plannerMode={plannerMode} />
                   <CloudSyncErrorToasts />
                   <DevDemoDataButton plannerMode={plannerMode} isCompactRoute={isCompactRoute} />
+                  <PlannerOnboardingTutorial
+                    plannerMode={plannerMode}
+                    isCompactRoute={isCompactRoute}
+                  />
                   <div
                     data-testid="app-shell"
                     className="relative flex h-full min-h-screen min-h-[100dvh] flex-col bg-background"
@@ -419,7 +424,10 @@ function CloudSessionRuntimeGuard({ plannerMode }: { plannerMode: PlannerMode })
           cache: 'no-store',
         });
         if (response.status >= 500) {
-          throw new Error(`Cloud API responded with ${response.status}.`);
+          const devHint = import.meta.env.DEV
+            ? ' (Local dev hint: start backend with `npm run server:dev`.)'
+            : '';
+          throw new Error(`Cloud API responded with ${response.status}.${devHint}`);
         }
         if (!cancelled) {
           setRuntimeError(null);
@@ -446,6 +454,50 @@ function CloudSessionRuntimeGuard({ plannerMode }: { plannerMode: PlannerMode })
   }
 
   return null;
+}
+
+function PlannerOnboardingTutorial({
+  plannerMode,
+  isCompactRoute,
+}: {
+  plannerMode: PlannerMode;
+  isCompactRoute: boolean;
+}) {
+  const { cloudUserId, hasCompletedTutorial, markTutorialCompleted } = useOnboarding();
+  const { user } = useCloudSync();
+  const [isOpen, setIsOpen] = useState(false);
+  const resolvedCloudUserId = user?.id ?? cloudUserId ?? null;
+
+  const shouldShowTutorial =
+    plannerMode === 'local'
+      ? !hasCompletedTutorial
+      : Boolean(resolvedCloudUserId) && !hasCompletedTutorial;
+
+  useEffect(() => {
+    if (isCompactRoute) {
+      setIsOpen(false);
+      return;
+    }
+    setIsOpen(shouldShowTutorial);
+  }, [isCompactRoute, shouldShowTutorial]);
+
+  if (plannerMode === 'cloud' && !resolvedCloudUserId) {
+    return null;
+  }
+
+  const handleDone = () => {
+    markTutorialCompleted(resolvedCloudUserId);
+    setIsOpen(false);
+  };
+
+  return (
+    <OnboardingTutorialModal
+      open={isOpen}
+      mode={plannerMode}
+      onSkip={handleDone}
+      onFinish={handleDone}
+    />
+  );
 }
 
 function DevDemoDataButton({

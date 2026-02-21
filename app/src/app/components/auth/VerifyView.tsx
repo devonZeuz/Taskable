@@ -34,6 +34,9 @@ export default function VerifyView() {
     <AuthScaffold
       title="Verify your email"
       description="Paste the verification token from your email to activate cloud account actions."
+      heroLead="Trust layer for"
+      heroTitle="Taskable"
+      heroSubtitle="Verification protects workspace access and keeps account recovery paths secure."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-verify-form">
         <div className="space-y-2">

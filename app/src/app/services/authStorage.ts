@@ -5,7 +5,10 @@ export const PLANNER_MODE_STORAGE_KEY = 'taskable:mode';
 export const CLOUD_TOKEN_STORAGE_KEY = 'taskable:cloud-token';
 export const CLOUD_REFRESH_TOKEN_STORAGE_KEY = 'taskable:cloud-refresh-token';
 export const CLOUD_ORG_STORAGE_KEY = 'taskable:cloud-org-id';
+export const CLOUD_USER_ID_STORAGE_KEY = 'taskable:cloud-user-id';
 export const CLOUD_AUTO_SYNC_STORAGE_KEY = 'taskable:cloud-auto-sync';
+export const LOCAL_TUTORIAL_COMPLETED_STORAGE_KEY = 'taskable:tutorial:local-completed';
+export const CLOUD_TUTORIAL_COMPLETED_STORAGE_PREFIX = 'taskable:tutorial:cloud-completed:';
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -62,18 +65,55 @@ export function readCloudToken(): string | null {
   return safeGetItem(CLOUD_TOKEN_STORAGE_KEY);
 }
 
+export function readCloudUserId(): string | null {
+  return safeGetItem(CLOUD_USER_ID_STORAGE_KEY);
+}
+
 export function hasCloudToken(): boolean {
   return Boolean(readCloudToken());
+}
+
+function getCloudTutorialStorageKey(userId: string): string {
+  return `${CLOUD_TUTORIAL_COMPLETED_STORAGE_PREFIX}${userId}`;
+}
+
+export function readLocalTutorialCompleted(): boolean {
+  return safeGetItem(LOCAL_TUTORIAL_COMPLETED_STORAGE_KEY) === 'true';
+}
+
+export function readCloudTutorialCompleted(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  return safeGetItem(getCloudTutorialStorageKey(userId)) === 'true';
+}
+
+export function writeLocalTutorialCompleted(completed: boolean) {
+  if (completed) {
+    safeSetItem(LOCAL_TUTORIAL_COMPLETED_STORAGE_KEY, 'true');
+  } else {
+    safeRemoveItem(LOCAL_TUTORIAL_COMPLETED_STORAGE_KEY);
+  }
+  notifyAuthStorageUpdated();
+}
+
+export function writeCloudTutorialCompleted(userId: string, completed: boolean) {
+  if (completed) {
+    safeSetItem(getCloudTutorialStorageKey(userId), 'true');
+  } else {
+    safeRemoveItem(getCloudTutorialStorageKey(userId));
+  }
+  notifyAuthStorageUpdated();
 }
 
 export function saveCloudSession({
   token,
   refreshToken,
   orgId,
+  userId,
 }: {
   token: string;
   refreshToken?: string | null;
   orgId?: string | null;
+  userId?: string | null;
 }) {
   safeSetItem(CLOUD_TOKEN_STORAGE_KEY, token);
   if (typeof refreshToken === 'string' && refreshToken.length > 0) {
@@ -84,6 +124,11 @@ export function saveCloudSession({
   if (typeof orgId === 'string' && orgId.length > 0) {
     safeSetItem(CLOUD_ORG_STORAGE_KEY, orgId);
   }
+  if (typeof userId === 'string' && userId.length > 0) {
+    safeSetItem(CLOUD_USER_ID_STORAGE_KEY, userId);
+  } else if (userId === null) {
+    safeRemoveItem(CLOUD_USER_ID_STORAGE_KEY);
+  }
   notifyAuthStorageUpdated();
 }
 
@@ -91,5 +136,6 @@ export function clearCloudSessionStorage() {
   safeRemoveItem(CLOUD_TOKEN_STORAGE_KEY);
   safeRemoveItem(CLOUD_REFRESH_TOKEN_STORAGE_KEY);
   safeRemoveItem(CLOUD_ORG_STORAGE_KEY);
+  safeRemoveItem(CLOUD_USER_ID_STORAGE_KEY);
   notifyAuthStorageUpdated();
 }

@@ -28,8 +28,14 @@ import {
   minutesToTime,
 } from '../services/scheduling';
 import { parseTaskIdFromSearch, removeTaskIdFromSearch } from '../services/taskDeepLink';
+import {
+  centerScrollLeft,
+  getMinutesSinceMidnightInTimeZone,
+  getNowAxisOffsetPx,
+} from '../services/timeAxisNow';
 
 const TODAY_REVEAL_BUFFER_ROWS = 0.9;
+const PERSONAL_NOW_SNAP_SESSION_KEY = 'taskable:now-snap:personal';
 
 export default function PersonalView() {
   const location = useLocation();
@@ -47,6 +53,8 @@ export default function PersonalView() {
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
   const todayRowRef = useRef<HTMLDivElement | null>(null);
   const hasInitialScrollRef = useRef(false);
+  const hasUserScrolledRef = useRef(false);
+  const hasAutoNowSnapRef = useRef(false);
   const currentUserId =
     cloudEnabled && cloudToken && activeOrgId && cloudUser ? cloudUser.id : 'user1';
   const hourWidth = 216;
@@ -71,6 +79,14 @@ export default function PersonalView() {
     }
     return result;
   }, [futureDays, recallDays]);
+  const hasTodayInRange = useMemo(() => days.some((day) => day.isToday), [days]);
+  const activeTimeZone = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  }, []);
 
   const getTodayTargetTop = useCallback(() => {
     const container = boardScrollRef.current;
@@ -154,6 +170,25 @@ export default function PersonalView() {
     };
   }, [days, getTodayTargetTop]);
 
+  useEffect(() => {
+    const container = boardScrollRef.current;
+    if (!container) return;
+
+    const markUserScrolled = () => {
+      hasUserScrolledRef.current = true;
+    };
+
+    container.addEventListener('wheel', markUserScrolled, { passive: true });
+    container.addEventListener('pointerdown', markUserScrolled);
+    container.addEventListener('touchstart', markUserScrolled, { passive: true });
+
+    return () => {
+      container.removeEventListener('wheel', markUserScrolled);
+      container.removeEventListener('pointerdown', markUserScrolled);
+      container.removeEventListener('touchstart', markUserScrolled);
+    };
+  }, []);
+
   const handleTimeAxisWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     if (!event.shiftKey || event.ctrlKey) return;
     const container = boardScrollRef.current;
@@ -198,6 +233,75 @@ export default function PersonalView() {
   );
   const endLabel = minutesToTime(workday.endHour * 60);
   const startLabel = minutesToTime(workday.startHour * 60);
+  const scrollToNow = useCallback(
+    (behavior: ScrollBehavior = 'smooth'): boolean => {
+      const container = boardScrollRef.current;
+      if (!container) return false;
+
+      const nowMinutes = getMinutesSinceMidnightInTimeZone(new Date(), activeTimeZone);
+      const nowX = getNowAxisOffsetPx({
+        nowMinutes,
+        workday,
+        hourWidth,
+        hourGap,
+      });
+      centerScrollLeft({
+        container,
+        targetX: nowX,
+        behavior,
+      });
+      return true;
+    },
+    [activeTimeZone, hourGap, hourWidth, workday]
+  );
+
+  useEffect(() => {
+    if (!hasTodayInRange) return;
+    if (hasAutoNowSnapRef.current) return;
+    if (hasUserScrolledRef.current) return;
+
+    try {
+      if (window.sessionStorage.getItem(PERSONAL_NOW_SNAP_SESSION_KEY) === '1') {
+        hasAutoNowSnapRef.current = true;
+        return;
+      }
+    } catch {
+      // ignore session storage errors
+    }
+
+    let attempts = 0;
+    let retryTimer: number | null = null;
+    const trySnap = () => {
+      if (hasUserScrolledRef.current) {
+        if (retryTimer !== null) {
+          window.clearInterval(retryTimer);
+        }
+        return;
+      }
+
+      attempts += 1;
+      const snapped = scrollToNow('auto');
+      if (snapped || attempts >= 20) {
+        hasAutoNowSnapRef.current = true;
+        try {
+          window.sessionStorage.setItem(PERSONAL_NOW_SNAP_SESSION_KEY, '1');
+        } catch {
+          // ignore session storage errors
+        }
+        if (retryTimer !== null) {
+          window.clearInterval(retryTimer);
+        }
+      }
+    };
+
+    trySnap();
+    retryTimer = window.setInterval(trySnap, 90);
+    return () => {
+      if (retryTimer !== null) {
+        window.clearInterval(retryTimer);
+      }
+    };
+  }, [hasTodayInRange, scrollToNow]);
 
   const visibleTasks = useMemo(
     () =>
@@ -268,6 +372,14 @@ export default function PersonalView() {
           <UndoRedoControls />
           <AddTaskDialog defaultAssignee={currentUserId} scheduleTasks={scheduleScopeTasks} />
           <BlockTaskButton defaultAssignee={currentUserId} scheduleTasks={scheduleScopeTasks} />
+          <button
+            type="button"
+            data-testid="jump-to-now-personal"
+            onClick={() => scrollToNow('smooth')}
+            className="ui-hud-btn h-9 rounded-[10px] px-3 text-[12px] font-semibold"
+          >
+            Jump to now
+          </button>
           <RealtimePresenceBadge compact />
           <SettingsDrawerInner />
         </div>
@@ -295,7 +407,7 @@ export default function PersonalView() {
             ref={stickyHeaderRef}
             className="sticky top-0 z-10 flex border-b border-[color:var(--board-line)] bg-[var(--board-surface)]/92 backdrop-blur-sm"
           >
-            <div className="w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] md:w-[196px]" />
+            <div className="sticky left-0 z-[20] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-surface)] md:w-[196px]" />
             <div
               className="relative"
               style={{ width: `${gridWidth}px` }}
@@ -335,6 +447,16 @@ export default function PersonalView() {
                   {endLabel}
                 </span>
               </div>
+              <div className="pointer-events-none absolute right-14 top-0 flex h-[46px] items-center">
+                <button
+                  type="button"
+                  data-testid="time-axis-now-pill-personal"
+                  onClick={() => scrollToNow('smooth')}
+                  className="pointer-events-auto rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--hud-text)] md:text-[11px]"
+                >
+                  Now
+                </button>
+              </div>
             </div>
           </div>
 
@@ -346,7 +468,10 @@ export default function PersonalView() {
               data-day-kind={day.isToday ? 'today' : 'other'}
               className="flex min-h-[134px] border-b border-[color:var(--board-line)] md:min-h-[174px]"
             >
-              <div className="w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] pl-3 pr-2 py-5 flex flex-col items-start justify-start text-left md:w-[196px] md:pl-4 md:pr-3 md:py-6">
+              <div
+                data-testid="day-label-cell"
+                className="sticky left-0 z-[8] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-bg)] pl-3 pr-2 py-5 text-left md:w-[196px] md:pl-4 md:pr-3 md:py-6"
+              >
                 <p
                   className="text-[21px] leading-[1.02] font-bold tracking-[-0.03em] md:text-[34px]"
                   style={{ color: 'var(--board-text)' }}

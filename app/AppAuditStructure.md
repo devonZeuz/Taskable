@@ -1,6 +1,6 @@
 # AppAuditStructure
 
-Last updated: 2026-02-21 (rev 8)
+Last updated: 2026-02-21 (rev 12)
 
 This document is the current source of truth for GPT-style product/architecture audits of Taskable.
 
@@ -10,7 +10,11 @@ Taskable is now a hybrid local-first + cloud-enabled planning app:
 
 - Frontend: React + Vite + TypeScript single-page app with `Personal` and `Team` routes.
 - Onboarding/auth gate: new public auth surface (`/welcome`, `/login`, `/signup`, `/verify`, `/forgot`, `/reset`) with planner entry gating (`/` -> `/welcome` or `/planner` based on mode/session).
+- Onboarding/auth UI pass: auth pages now use a single active auth card over a background-led hero surface (right-aligned headline, oversized `Taskable` wordmark, reduced decorative chrome).
+- First-run tutorial: planner now overlays a non-blocking 5-7 step onboarding tutorial modal on first entry (post-signup, first cloud login, and first local planner entry) with per-mode persistence.
 - Core UX: drag/drop scheduling grid with 15-minute snapping, resizing, stacking, hover-dwell shove, inbox unscheduling, and daily planning workflow.
+- Timeline UX: planner now supports soft horizontal snap-to-current-time (auto once per route/session + manual `Jump to now`/`Now` controls) while preserving native vertical scroll ownership.
+- Grid layout: day-label column is now sticky/frozen during horizontal timeline scroll (Excel-style pinned left panel) with board-token background separation.
 - Compact UX: `/compact` route for fast visual tracking with simplified read-only task cards (title + time only) and deep-link back to full editor.
 - Capture UX: external drag/drop capture from Outlook/email payloads into Inbox or directly onto day/time grid (subject/title parsed into task title).
 - Visual system: theme-driven HUD/cards with `default`, `mono` (true black/white, readability-tuned), and `sugar-plum` palettes.
@@ -82,6 +86,7 @@ app/
    - public onboarding/auth routes: `/welcome`, `/login`, `/signup`, `/verify`, `/forgot`, `/reset`
    - planner routes behind `Root` gate: `/planner`, `/team`, `/compact`
    - root + child route `errorElement` boundaries for branded recovery UI on lazy/runtime failures
+   - local-dev onboarding QA mode: on loopback hosts in `DEV`, `/` defaults to `/welcome`; append `?persistMode=1` to keep remembered-mode root routing during development
 
 ### 3.2 Provider stack
 
@@ -387,6 +392,7 @@ Notes:
 - production responses include explicit security headers/CSP (`default-src 'self'`, restricted `script-src`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`, `connect-src` allow-list)
 - `Permissions-Policy` and `Referrer-Policy` are explicitly set in production middleware
 - CORS is driven by `CORS_ALLOWED_ORIGINS` (with loopback-only relaxed behavior in non-production)
+- email-based auth/member lookups now use case-insensitive matching (`lower(email) = lower(?)`) across login/reset/verification/member-invite paths to avoid false "invalid credentials" due to casing differences
 
 ## 8. Team/Ownership Behavior
 
@@ -552,9 +558,16 @@ E2E tests (`tests/e2e/planner.spec.ts`):
 Onboarding/auth E2E tests (`tests/e2e/onboarding-auth.spec.ts`):
 
 - fresh browser `/` lands on `/welcome`
-- `Continue locally` enters `/planner` with empty state (no auto-seeded tasks)
+- `Continue locally` enters `/planner` with empty state (no auto-seeded tasks), shows first-run tutorial, and persists tutorial dismissal across reload
 - signup route is reachable from welcome flow
+- signup flow lands on `/planner` with empty cloud task list and first-run tutorial overlay
+- first cloud login (without prior completion) shows tutorial overlay
+- local mode assertion verifies no cloud task pull calls are issued
 - cloud mode API reachability failure in planner renders branded route error UI
+
+Cloud auth regression E2E (`tests/e2e/planner-cloud-sync.spec.ts`):
+
+- re-login after signup succeeds with mixed-case and whitespace-padded email input (case-insensitive + trim-safe server lookup)
 
 Compact E2E tests (`tests/e2e/planner-compact.spec.ts`):
 
@@ -571,6 +584,7 @@ Desktop/runtime E2E tests:
 - `tests/e2e/settings-integrations.spec.ts` validates integration/settings input interaction and desktop-safe focus behavior
 - `tests/e2e/planner-layout-regression.spec.ts` validates overlap + scroll + resize layout bounds (task cards do not intersect header/footer forbidden regions and stay inside day-column bounds)
 - `tests/e2e/route-error-boundary.spec.ts` simulates lazy chunk fetch failure and asserts branded recovery UI (retry/reload/home + diagnostics) instead of React Router default crash page
+- `tests/e2e/planner-now-snap.spec.ts` validates forced-time initial horizontal snap (`scrollLeft > 0` + now-indicator visible in viewport) and sticky day-label pinning during horizontal scroll while deterministic drag/drop still works
 
 Advanced deterministic interaction E2E (`tests/e2e/planner-dnd.spec.ts`):
 
@@ -865,3 +879,103 @@ Executed and passing:
 - Desktop security defaults are enforced, but code signing/update-channel hardening remains pending for production distribution.
 - Conflict resolution UX still relies on one-task-at-a-time handling under high-conflict bursts.
 - Dependency advisory debt remains (`npm audit` moderate issue path).
+
+## 18. Onboarding UI + Auth Login Reliability Update (2026-02-21)
+
+### 18.1 What changed
+
+- Auth route visual pass (`/welcome`, `/login`, `/signup`, `/verify`, `/forgot`, `/reset`):
+  - kept only the auth form surface inside the primary boxed container
+  - moved the hero narrative outside the card into a background-led panel area
+  - removed extra welcome badge/chip styling and simplified page chrome
+  - increased `Taskable` hero scale and right-aligned hero composition for cleaner focus hierarchy
+- Auth reliability fix in backend:
+  - server email lookups switched to case-insensitive matching in login-adjacent flows so users can re-login with mixed-case email after signup
+  - affected endpoints include register duplicate-check, login, Microsoft exchange fallback lookup, resend verification, request password reset, and member invite lookup
+
+### 18.2 Tests and verification
+
+- Added/updated regression: `tests/e2e/planner-cloud-sync.spec.ts` includes `supports re-login after signup with case-insensitive email lookup`.
+- Existing onboarding route coverage remains active in `tests/e2e/onboarding-auth.spec.ts`.
+- Gate status remains green on the latest full run (`typecheck`, `lint`, `format:check`, `test`, `test:e2e`, `test:e2e:cloud`, `build`, `perf:check`).
+
+## 19. Dev Entry + Package Identity Update (2026-02-21)
+
+### 19.1 What changed
+
+- Root package identity was renamed from `@figma/my-make-file` to `taskable-app` in `package.json` and `package-lock.json` so CLI script output no longer references `figma`.
+- App entry behavior in local development was adjusted for faster onboarding testing:
+  - on loopback hosts in `DEV`, navigating to `/` now routes to `/welcome` by default
+  - remembered-mode root behavior can still be tested by using `/?persistMode=1`
+  - explicit `/?welcome=1` continues to force onboarding route selection
+
+### 19.2 Documentation
+
+- `README.md` local development section now includes the dev onboarding routing note and the `persistMode` query override.
+
+## 20. Tutorial Modal + Production Seeding Guard Update (2026-02-21)
+
+### 20.1 What changed
+
+- Added `OnboardingTutorialModal` (`src/app/components/onboarding/OnboardingTutorialModal.tsx`) with:
+  - 5-7 instructional slides (mode-aware cloud slide),
+  - back/next/skip/finish controls,
+  - progress dots and icon + title + short guidance copy per slide.
+- Tutorial trigger behavior:
+  - shown after successful signup once planner loads,
+  - shown on first cloud login if not previously completed for that user,
+  - shown on first local planner entry if not previously completed.
+- Tutorial persistence:
+  - local mode: `taskable:tutorial:local-completed` in localStorage,
+  - cloud mode: localStorage key scoped by user id (`taskable:tutorial:cloud-completed:{userId}`),
+  - cloud user id tracked via `taskable:cloud-user-id` so completion follows account on the device.
+- Planner fallback behavior:
+  - direct navigation to `/planner` still loads planner immediately, then overlays tutorial when completion is pending.
+- Production seeding hardening:
+  - `TaskContext.loadDemoData` now exits unless `import.meta.env.DEV` is true,
+  - demo task population remains explicit/manual only via dev-only button,
+  - no automatic task seeding on first run in production.
+- Cloud/local isolation:
+  - local mode remains network-silent for cloud task pull/merge behavior (`CloudSyncContext` stays mode-gated).
+
+### 20.2 Auth reliability hardening
+
+- Login-related email lookup paths now use `lower(trim(email)) = lower(trim(?))`.
+- Input schemas now normalize emails with `trim().toLowerCase().email()` to reduce user-facing false invalid-credential cases caused by incidental whitespace/casing.
+
+### 20.3 New/updated tests
+
+- `tests/e2e/onboarding-auth.spec.ts`:
+  - local tutorial appears once and does not return after skip/reload,
+  - cloud signup lands in empty planner and shows tutorial,
+  - first cloud login shows tutorial when incomplete,
+  - local mode does not issue cloud task pull calls.
+- `tests/e2e/planner-cloud-sync.spec.ts`:
+  - re-login regression now validates case-insensitive + whitespace-trimmed email login.
+
+## 21. Planner Time-Axis Snap + Sticky Day-Labels Update (2026-02-21)
+
+### 21.1 What changed
+
+- Added route-specific timeline snap-to-now behavior in `PersonalView` and `TeamView`:
+  - new `scrollToNow({ behavior })` computes current time offset using active timezone + existing timeline scale
+  - centers timeline to `nowX` with clamped `scrollLeft`
+  - auto-runs once per route per browser session (`sessionStorage` keys: personal/team), only when today is in rendered range and before user scroll interaction
+  - manual controls added:
+    - `Jump to now` button in planner HUD controls
+    - `Now` pill in sticky time-axis header
+- Added reusable helpers in `src/app/services/timeAxisNow.ts`:
+  - timezone-aware minutes-since-midnight
+  - time-axis pixel conversion
+  - centered horizontal scroll clamping
+- Frozen day-label panel during horizontal scroll:
+  - day-label header cell + per-row day-label cells now use `position: sticky; left: 0`
+  - z-index and board-token background/border alignment prevent transparency bleed and keep labels visually pinned
+  - task lanes remain interactive/draggable on timeline area.
+
+### 21.2 New tests
+
+- Added `tests/e2e/planner-now-snap.spec.ts`:
+  - forced-time planner load asserts initial `board-scroll.scrollLeft > 0` and now-indicator inside viewport bounds
+  - horizontal scroll asserts day-label cell remains pinned near left edge and deterministic drag still succeeds
+- Added `data-testid="timeline-now-indicator"` on day timeline marker for deterministic viewport assertions.

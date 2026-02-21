@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { CloudRequestError, CLOUD_SYNC_ENABLED } from '../../services/cloudApi';
 import {
   getAuthErrorMessage,
@@ -15,7 +15,7 @@ import AuthScaffold from './AuthScaffold';
 export default function SignupView() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { setMode, setCloudSession, isCloudAuthenticated } = useOnboarding();
+  const { setMode, setCloudSession } = useOnboarding();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,10 +30,6 @@ export default function SignupView() {
   useEffect(() => {
     setMode('cloud');
   }, [setMode]);
-
-  if (isCloudAuthenticated) {
-    return <Navigate to={returnTo} replace />;
-  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -50,6 +46,7 @@ export default function SignupView() {
         token: session.token,
         refreshToken: session.refreshToken,
         orgId: session.defaultOrgId,
+        userId: session.user?.id ?? null,
       });
       if (session.verificationRequired) {
         setMessage(
@@ -89,8 +86,8 @@ export default function SignupView() {
 
   return (
     <AuthScaffold
-      title="Create your cloud account"
-      description="Set up a cloud workspace for cross-device sync and collaboration."
+      title="Create account"
+      description="Create a cloud workspace to sync tasks across web and desktop."
       footer={
         <p>
           Already have an account?{' '}
@@ -100,6 +97,9 @@ export default function SignupView() {
           .
         </p>
       }
+      heroLead="Build with"
+      heroTitle="Taskable"
+      heroSubtitle="Create your account once, then use the same planner and sync layer across every surface."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-signup-form">
         <div className="space-y-2">

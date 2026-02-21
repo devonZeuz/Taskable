@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { Cloud, Laptop, LogIn, UserPlus } from 'lucide-react';
+import { Laptop, LogIn, UserPlus } from 'lucide-react';
 import { Button } from '../ui/button';
 import AuthScaffold from './AuthScaffold';
 import { useOnboarding } from '../../context/OnboardingContext';
@@ -32,14 +32,16 @@ export default function WelcomeView() {
 
   return (
     <AuthScaffold
-      title="Choose your workspace mode"
-      description="Start in local mode or sign in to cloud mode for sync across devices."
+      title="Choose your start mode"
+      description="Local mode keeps data on this device. Cloud mode signs you in for cross-device sync."
       footer={
         <p>
-          You can switch modes anytime from settings. Local mode never calls cloud endpoints until
-          you opt in.
+          You can switch modes later in settings. Local mode never calls cloud endpoints until you
+          opt in.
         </p>
       }
+      heroLead="Welcome to"
+      heroTitle="Taskable"
     >
       <div className="space-y-3" data-testid="welcome-screen">
         <Button
@@ -71,15 +73,9 @@ export default function WelcomeView() {
         </Button>
       </div>
 
-      <div className="ui-hud-section space-y-2 rounded-2xl p-4 text-sm">
-        <div className="flex items-center gap-2 text-[color:var(--hud-text)]">
-          <Cloud className="size-4" />
-          Cloud mode
-        </div>
-        <p className="text-[color:var(--hud-muted)]">
-          Cloud mode syncs tasks and team presence. Local mode keeps everything on this device.
-        </p>
-      </div>
+      <p className="text-sm leading-relaxed text-[color:var(--hud-muted)]">
+        Cloud mode syncs tasks and team presence. Local mode stays private on this machine.
+      </p>
 
       {isCloudAuthenticated ? (
         <Button

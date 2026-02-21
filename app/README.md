@@ -20,6 +20,11 @@ Taskable is a planner app with web + desktop surfaces and a Node/Express backend
 7. Optional desktop dev shell:
    - `npm run desktop:dev`
 
+Local onboarding test note:
+
+- In local dev on `localhost`, opening `/` defaults to onboarding (`/welcome`) so auth/onboarding flows are easy to retest.
+- If you want remembered-mode behavior at `/` during dev, use `/?persistMode=1`.
+
 ## Deployment
 
 ### Backend (Render example)

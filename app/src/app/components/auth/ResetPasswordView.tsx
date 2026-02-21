@@ -36,6 +36,9 @@ export default function ResetPasswordView() {
     <AuthScaffold
       title="Set a new password"
       description="Paste your reset token and choose a strong password."
+      heroLead="Secure your"
+      heroTitle="Taskable"
+      heroSubtitle="Set a new password and continue with the same account and workspace."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-reset-form">
         <div className="space-y-2">

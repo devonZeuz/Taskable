@@ -31,6 +31,7 @@ import {
   CLOUD_ORG_STORAGE_KEY as ORG_STORAGE_KEY,
   CLOUD_REFRESH_TOKEN_STORAGE_KEY as REFRESH_TOKEN_STORAGE_KEY,
   CLOUD_TOKEN_STORAGE_KEY as TOKEN_STORAGE_KEY,
+  CLOUD_USER_ID_STORAGE_KEY as USER_ID_STORAGE_KEY,
   notifyAuthStorageUpdated,
   type PlannerMode,
 } from '../services/authStorage';
@@ -648,6 +649,19 @@ export function CloudSyncProvider({
     }
     notifyAuthStorageUpdated();
   }, [refreshToken]);
+
+  useEffect(() => {
+    try {
+      if (user?.id) {
+        localStorage.setItem(USER_ID_STORAGE_KEY, user.id);
+      } else {
+        localStorage.removeItem(USER_ID_STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage errors
+    }
+    notifyAuthStorageUpdated();
+  }, [user?.id]);
 
   useEffect(() => {
     const activeTaskIds = new Set<string>();

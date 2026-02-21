@@ -1058,18 +1058,12 @@ function resolveAssignableUserId(orgId, assigneeId) {
 }
 
 const registerSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((value) => value.trim().toLowerCase()),
+  email: z.string().trim().toLowerCase().email(),
   password: z.string().min(8),
   name: z.string().min(1).max(100),
 });
 const loginSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((value) => value.trim().toLowerCase()),
+  email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1),
   mfaTicket: z.string().min(16).optional(),
   mfaCode: z
@@ -1085,10 +1079,7 @@ const verifyEmailSchema = z.object({
   token: z.string().min(16),
 });
 const emailOnlySchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((value) => value.trim().toLowerCase()),
+  email: z.string().trim().toLowerCase().email(),
 });
 const resetPasswordSchema = z.object({
   token: z.string().min(16),
@@ -1199,7 +1190,9 @@ async function verifyMicrosoftAccessToken(accessToken) {
 function mapUserRow(userRow) {
   return {
     id: userRow.id,
-    email: userRow.email,
+    email: String(userRow.email || '')
+      .trim()
+      .toLowerCase(),
     name: userRow.name,
     created_at: userRow.created_at,
     emailVerified: Boolean(userRow.email_verified_at),
@@ -1284,7 +1277,9 @@ app.post('/api/auth/register', rateLimitAuth({ keyPrefix: 'auth-register' }), as
   }
 
   const { email, password, name } = parsed.data;
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const existing = db
+    .prepare('SELECT id FROM users WHERE lower(trim(email)) = lower(trim(?))')
+    .get(email);
   if (existing) {
     sendError(res, 409, 'EMAIL_EXISTS', 'Email already exists.');
     return;
@@ -1361,7 +1356,7 @@ app.post('/api/auth/login', rateLimitAuth({ keyPrefix: 'auth-login' }), async (r
     .prepare(
       `SELECT id, email, name, created_at, email_verified_at, password_hash, mfa_enabled, mfa_secret, mfa_enrolled_at
        FROM users
-       WHERE email = ?`
+       WHERE lower(trim(email)) = lower(trim(?))`
     )
     .get(email);
 
@@ -1463,7 +1458,7 @@ app.post(
       .prepare(
         `SELECT id, email, name, created_at, email_verified_at
          FROM users
-         WHERE email = ?`
+         WHERE lower(trim(email)) = lower(trim(?))`
       )
       .get(microsoftIdentity.email);
     let defaultOrgId;
@@ -1627,7 +1622,7 @@ app.post(
     }
 
     const user = db
-      .prepare('SELECT id, email_verified_at FROM users WHERE email = ?')
+      .prepare('SELECT id, email_verified_at FROM users WHERE lower(trim(email)) = lower(trim(?))')
       .get(parsed.data.email);
 
     if (!user || user.email_verified_at) {
@@ -1713,7 +1708,9 @@ app.post(
       return;
     }
 
-    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(parsed.data.email);
+    const user = db
+      .prepare('SELECT id FROM users WHERE lower(trim(email)) = lower(trim(?))')
+      .get(parsed.data.email);
     if (!user) {
       res.json({ ok: true });
       return;
@@ -2380,7 +2377,7 @@ app.post(
     }
 
     const targetUser = db
-      .prepare('SELECT id, email, name FROM users WHERE email = ?')
+      .prepare('SELECT id, email, name FROM users WHERE lower(trim(email)) = lower(trim(?))')
       .get(parsed.data.email);
 
     if (!targetUser) {

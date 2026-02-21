@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { CloudRequestError, CLOUD_SYNC_ENABLED } from '../../services/cloudApi';
 import {
   getAuthErrorMessage,
@@ -16,7 +16,7 @@ import AuthScaffold from './AuthScaffold';
 export default function LoginView() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { setMode, setCloudSession, isCloudAuthenticated } = useOnboarding();
+  const { setMode, setCloudSession } = useOnboarding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mfaTicket, setMfaTicket] = useState<string | null>(null);
@@ -33,10 +33,6 @@ export default function LoginView() {
     setMode('cloud');
   }, [setMode]);
 
-  if (isCloudAuthenticated) {
-    return <Navigate to={returnTo} replace />;
-  }
-
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
@@ -52,6 +48,7 @@ export default function LoginView() {
         token: session.token,
         refreshToken: session.refreshToken,
         orgId: session.defaultOrgId,
+        userId: session.user?.id ?? null,
       });
       navigate(returnTo, { replace: true });
     } catch (error) {
@@ -92,8 +89,8 @@ export default function LoginView() {
 
   return (
     <AuthScaffold
-      title="Sign in to Taskable Cloud"
-      description="Use your cloud account to sync tasks and team workspace data."
+      title="Sign in"
+      description="Use your cloud account to sync planner state, team presence, and workspace changes."
       footer={
         <p>
           Need an account?{' '}
@@ -103,6 +100,9 @@ export default function LoginView() {
           .
         </p>
       }
+      heroLead="Welcome back to"
+      heroTitle="Taskable"
+      heroSubtitle="Pick up where you left off. Your planner, priorities, and workspace sync return after sign-in."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-login-form">
         <div className="space-y-2">

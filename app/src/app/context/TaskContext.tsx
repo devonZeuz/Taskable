@@ -987,6 +987,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadDemoData = useCallback(() => {
+    if (!import.meta.env.DEV) return;
     dispatch({ type: 'replace', tasks: generateInitialTasks(), clearHistory: true });
   }, []);
 

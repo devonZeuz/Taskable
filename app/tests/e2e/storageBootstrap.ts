@@ -13,6 +13,7 @@ export async function bootstrapLocalMode(page: Page, options: LocalBootstrapOpti
         window.localStorage.clear();
       }
       window.localStorage.setItem('taskable:mode', 'local');
+      window.localStorage.setItem('taskable:tutorial:local-completed', 'true');
 
       if (!seed) return;
 
