@@ -1,6 +1,6 @@
 # AppAuditStructure
 
-Last updated: 2026-02-21 (rev 12)
+Last updated: 2026-02-21 (rev 13)
 
 This document is the current source of truth for GPT-style product/architecture audits of Taskable.
 
@@ -12,6 +12,7 @@ Taskable is now a hybrid local-first + cloud-enabled planning app:
 - Onboarding/auth gate: new public auth surface (`/welcome`, `/login`, `/signup`, `/verify`, `/forgot`, `/reset`) with planner entry gating (`/` -> `/welcome` or `/planner` based on mode/session).
 - Onboarding/auth UI pass: auth pages now use a single active auth card over a background-led hero surface (right-aligned headline, oversized `Taskable` wordmark, reduced decorative chrome).
 - First-run tutorial: planner now overlays a non-blocking 5-7 step onboarding tutorial modal on first entry (post-signup, first cloud login, and first local planner entry) with per-mode persistence.
+- Deployment/runtime reliability: Vercel SPA route fallback is now explicit to avoid `404` on deep-link refresh, and UI sound playback now pre-primes on first user gesture for more reliable first-interaction click feedback.
 - Core UX: drag/drop scheduling grid with 15-minute snapping, resizing, stacking, hover-dwell shove, inbox unscheduling, and daily planning workflow.
 - Timeline UX: planner now supports soft horizontal snap-to-current-time (auto once per route/session + manual `Jump to now`/`Now` controls) while preserving native vertical scroll ownership.
 - Grid layout: day-label column is now sticky/frozen during horizontal timeline scroll (Excel-style pinned left panel) with board-token background separation.
@@ -979,3 +980,21 @@ Executed and passing:
   - forced-time planner load asserts initial `board-scroll.scrollLeft > 0` and now-indicator inside viewport bounds
   - horizontal scroll asserts day-label cell remains pinned near left edge and deterministic drag still succeeds
 - Added `data-testid="timeline-now-indicator"` on day timeline marker for deterministic viewport assertions.
+
+## 22. Vercel Refresh + UI Sound Reliability Update (2026-02-21)
+
+### 22.1 What changed
+
+- Added `app/vercel.json` SPA fallback routing:
+  - filesystem-first route handling
+  - fallback to `/index.html` for non-file paths so route refreshes (`/planner`, `/team`, `/welcome`, etc.) no longer return Vercel `404`.
+- Simplified sound playback initialization in `src/app/services/uiSounds.ts`:
+  - removed fetch/blob warmup path that could fail or race on first interaction
+  - switched to direct asset URL audio pool with unlock-time priming
+  - first user gesture now resumes audio context and primes playback channels
+  - retained oscillator fallback tone when media playback fails.
+
+### 22.2 Impact
+
+- Deployed web builds now preserve client-side routing on hard refresh.
+- Planner interaction sounds are more consistent on first action in production and local builds.

@@ -1,6 +1,6 @@
 # AppAuditReport (P1 Hardening Sprint)
 
-Last updated: 2026-02-21 (timeline snap + sticky day-labels + tutorial/auth hardening)
+Last updated: 2026-02-21 (vercel refresh routing + ui sound reliability)
 Target: V1 release readiness (web + desktop shell)
 Scope: P1 hardening only, preserving planner behavior and scroll ownership
 
@@ -268,3 +268,22 @@ P1 hardening sprint is complete and all required gates are green.
 - `npx playwright test tests/e2e/planner-now-snap.spec.ts`: PASS
 - `npm run test:e2e`: PARTIAL PASS
   - 33 passed, 1 skipped, 2 existing failures in `tests/e2e/planner-desktop-wheel.spec.ts` (`preventDefault` expectation mismatch), unrelated to this feature patch.
+
+## Vercel Refresh 404 + First-Click Sound Reliability Update (2026-02-21)
+
+### What changed
+
+1. Added Vercel SPA fallback routing:
+   - new `app/vercel.json` with filesystem-first handling and fallback to `/index.html`.
+   - fixes deployed hard-refresh `404` on client routes such as `/planner`, `/team`, `/welcome`, `/login`, `/signup`.
+2. Hardened UI sound playback startup:
+   - updated `src/app/services/uiSounds.ts` to remove fetch/blob warmup path.
+   - now uses direct media URL pool + first-gesture priming.
+   - audio context resume + muted prime run on first interaction.
+   - fallback oscillator tone still used when media playback fails.
+
+### Validation run
+
+- `npm run typecheck`: PASS
+- `npm run lint`: PASS
+- `npm run format:check`: PASS
