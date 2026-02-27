@@ -7,6 +7,7 @@ const API_PORT = 41973;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const ALLOWED_ORIGIN = 'http://allowed.example';
 const DENIED_ORIGIN = 'http://denied.example';
+const METRICS_ACCESS_TOKEN = 'test-metrics-token-123';
 const TEST_DB_PATH = path.join(os.tmpdir(), `tareva-security-headers-${Date.now()}.db`);
 let serverProcess: ChildProcessWithoutNullStreams | null = null;
 
@@ -35,6 +36,7 @@ beforeAll(async () => {
       CORS_ALLOWED_ORIGINS: `${ALLOWED_ORIGIN},http://localhost:5173`,
       CLIENT_ORIGIN: 'http://localhost:5173',
       TASKABLE_DB_PATH: TEST_DB_PATH,
+      METRICS_ACCESS_TOKEN,
     },
     stdio: 'pipe',
   });
@@ -78,5 +80,17 @@ describe('server production security headers', () => {
       headers: { Origin: DENIED_ORIGIN },
     });
     expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('requires metrics token for metrics routes', async () => {
+    const unauthorized = await fetch(`${API_BASE}/metrics/basic`);
+    expect(unauthorized.status).toBe(401);
+
+    const authorized = await fetch(`${API_BASE}/metrics/basic`, {
+      headers: {
+        'x-metrics-token': METRICS_ACCESS_TOKEN,
+      },
+    });
+    expect(authorized.status).toBe(200);
   });
 });

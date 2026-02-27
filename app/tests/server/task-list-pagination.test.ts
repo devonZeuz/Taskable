@@ -29,7 +29,7 @@ async function createTask(
   title: string,
   startDateTime = new Date().toISOString()
 ) {
-  const response = await jsonRequest<{ task?: { id?: string } }>(baseUrl, `/api/orgs/${orgId}/tasks`, {
+  const response = await jsonRequest<{ task?: { id?: string } }>(baseUrl, `/api/v1/orgs/${orgId}/tasks`, {
     method: 'POST',
     token,
     body: {
@@ -63,7 +63,7 @@ describe('org task list pagination + incremental query', () => {
       hasMore: boolean;
       since: string | null;
       nextSince: string | null;
-    }>(server!.baseUrl, `/api/orgs/${owner.orgId}/tasks?limit=1`, {
+    }>(server!.baseUrl, `/api/v1/orgs/${owner.orgId}/tasks?limit=1`, {
       token: owner.token,
     });
 
@@ -86,7 +86,7 @@ describe('org task list pagination + incremental query', () => {
       staleTaskId,
     ]);
 
-    const deleteResponse = await jsonRequest(server!.baseUrl, `/api/orgs/${owner.orgId}/tasks/${deletedTaskId}`, {
+    const deleteResponse = await jsonRequest(server!.baseUrl, `/api/v1/orgs/${owner.orgId}/tasks/${deletedTaskId}`, {
       method: 'DELETE',
       token: owner.token,
     });
@@ -97,7 +97,7 @@ describe('org task list pagination + incremental query', () => {
       tasks: Array<{ id: string }>;
       deletedTaskIds: string[];
       since: string | null;
-    }>(server!.baseUrl, `/api/orgs/${owner.orgId}/tasks?since=${encodeURIComponent(since)}`, {
+    }>(server!.baseUrl, `/api/v1/orgs/${owner.orgId}/tasks?since=${encodeURIComponent(since)}`, {
       token: owner.token,
     });
 

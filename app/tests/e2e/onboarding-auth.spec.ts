@@ -15,7 +15,7 @@ test('continue locally enters planner with empty state and one-time tutorial', a
   await page.addInitScript(() => {
     window.localStorage.clear();
   });
-  await page.route('**/api/orgs/**/tasks*', async (route) => {
+  await page.route('**/api/v1/orgs/**/tasks*', async (route) => {
     cloudTaskPullRequests += 1;
     await route.fulfill({
       status: 200,
@@ -62,7 +62,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     window.localStorage.setItem('taskable:cloud-auto-sync', 'false');
   });
 
-  await page.route('**/api/auth/register', async (route) => {
+  await page.route('**/api/v1/auth/register', async (route) => {
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
@@ -86,7 +86,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
-  await page.route('**/api/me*', async (route) => {
+  await page.route('**/api/v1/me*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -105,7 +105,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
-  await page.route('**/api/orgs/org_test/tasks*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test/tasks*', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -122,7 +122,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
-  await page.route('**/api/orgs/org_test/members*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test/members*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -130,7 +130,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
-  await page.route('**/api/orgs/org_test/presence*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test/presence*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -138,7 +138,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
-  await page.route('**/api/orgs/org_test/stream-token*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test/stream-token*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -146,7 +146,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
-  await page.route('**/api/orgs/org_test/stream*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test/stream*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -154,7 +154,7 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
-  await page.route('**/api/ops/events', async (route) => {
+  await page.route('**/api/v1/ops/events', async (route) => {
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
@@ -185,7 +185,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     window.localStorage.setItem('taskable:cloud-auto-sync', 'false');
   });
 
-  await page.route('**/api/auth/login', async (route) => {
+  await page.route('**/api/v1/auth/login', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -209,7 +209,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/me*', async (route) => {
+  await page.route('**/api/v1/me*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -228,7 +228,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/orgs/org_test_login/tasks*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test_login/tasks*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -236,7 +236,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/orgs/org_test_login/members*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test_login/members*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -244,7 +244,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/orgs/org_test_login/presence*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test_login/presence*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -252,7 +252,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/orgs/org_test_login/stream-token*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test_login/stream-token*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -260,7 +260,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/orgs/org_test_login/stream*', async (route) => {
+  await page.route('**/api/v1/orgs/org_test_login/stream*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -268,7 +268,7 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
-  await page.route('**/api/ops/events', async (route) => {
+  await page.route('**/api/v1/ops/events', async (route) => {
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
@@ -292,7 +292,7 @@ test('cloud runtime API failure shows branded app error UI', async ({ page }) =>
     window.localStorage.setItem('taskable:cloud-token', 'e2e-invalid-token');
   });
 
-  await page.route('**/api/me*', async (route) => {
+  await page.route('**/api/v1/me*', async (route) => {
     await route.abort('failed');
   });
 

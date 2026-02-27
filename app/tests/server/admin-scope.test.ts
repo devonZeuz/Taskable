@@ -28,7 +28,7 @@ describe('admin owner scope filtering', () => {
 
     const createTaskA = await jsonRequest<{ task?: { id?: string } }>(
       server!.baseUrl,
-      `/api/orgs/${ownerA.orgId}/tasks`,
+      `/api/v1/orgs/${ownerA.orgId}/tasks`,
       {
         method: 'POST',
         token: ownerA.token,
@@ -50,7 +50,7 @@ describe('admin owner scope filtering', () => {
 
     const createTaskB = await jsonRequest<{ task?: { id?: string } }>(
       server!.baseUrl,
-      `/api/orgs/${ownerB.orgId}/tasks`,
+      `/api/v1/orgs/${ownerB.orgId}/tasks`,
       {
         method: 'POST',
         token: ownerB.token,
@@ -75,7 +75,7 @@ describe('admin owner scope filtering', () => {
 
     const conflictA = await jsonRequest<{ accepted?: boolean }>(
       server!.baseUrl,
-      '/api/ops/events',
+      '/api/v1/ops/events',
       {
         method: 'POST',
         token: ownerA.token,
@@ -90,7 +90,7 @@ describe('admin owner scope filtering', () => {
 
     const conflictB = await jsonRequest<{ accepted?: boolean }>(
       server!.baseUrl,
-      '/api/ops/events',
+      '/api/v1/ops/events',
       {
         method: 'POST',
         token: ownerB.token,
@@ -105,7 +105,7 @@ describe('admin owner scope filtering', () => {
 
     const orgsResponse = await jsonRequest<{
       orgs: Array<{ orgId: string }>;
-    }>(server!.baseUrl, '/api/admin/orgs', {
+    }>(server!.baseUrl, '/api/v1/admin/orgs', {
       token: ownerA.token,
     });
     expect(orgsResponse.status).toBe(200);
@@ -114,7 +114,7 @@ describe('admin owner scope filtering', () => {
 
     const usersResponse = await jsonRequest<{
       users: Array<{ id: string }>;
-    }>(server!.baseUrl, '/api/admin/users', {
+    }>(server!.baseUrl, '/api/v1/admin/users', {
       token: ownerA.token,
     });
     expect(usersResponse.status).toBe(200);
@@ -124,7 +124,7 @@ describe('admin owner scope filtering', () => {
 
     const conflictsResponse = await jsonRequest<{
       conflicts: Array<{ orgId: string; taskId: string }>;
-    }>(server!.baseUrl, '/api/admin/conflicts?status=all', {
+    }>(server!.baseUrl, '/api/v1/admin/conflicts?status=all', {
       token: ownerA.token,
     });
     expect(conflictsResponse.status).toBe(200);

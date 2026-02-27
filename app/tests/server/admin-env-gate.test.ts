@@ -27,7 +27,7 @@ afterAll(async () => {
 describe('admin api env gate', () => {
   it('returns 404 when admin api is disabled', async () => {
     const owner = await registerUser(server!.baseUrl, 'owner-disabled');
-    const response = await jsonRequest<{ code?: string }>(server!.baseUrl, '/api/admin/overview', {
+    const response = await jsonRequest<{ code?: string }>(server!.baseUrl, '/api/v1/admin/overview', {
       token: owner.token,
     });
 

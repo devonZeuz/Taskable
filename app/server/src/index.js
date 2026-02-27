@@ -9,6 +9,8 @@ import { generateSecret, generateURI, verifySync } from 'otplib';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import {
+  clearExpiredAuthRateLimits,
+  consumeAuthRateLimit,
   countVerificationResendsForUser,
   createId,
   db,
@@ -32,6 +34,7 @@ import {
   isoAtWindowStart,
   sanitizeOperationalMetadata,
 } from './opsTelemetry.js';
+import { createAuthRateLimiter } from './authRateLimiter.js';
 
 const app = express();
 app.disable('etag');
@@ -209,14 +212,13 @@ app.use(
   })
 );
 app.use(express.json({ limit: '1mb' }));
-app.use('/api', (_req, res, next) => {
+app.use('/api/v1', (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   next();
 });
 
-const authRateMap = new Map();
 const requestMetrics = {
   total: 0,
   byStatus: new Map(),
@@ -260,9 +262,9 @@ let lastOperationalRetentionSweepAt = 0;
 
 function isSyncRoutePattern(routePattern) {
   return (
-    routePattern === '/api/orgs/:orgId/tasks' ||
-    routePattern === '/api/orgs/:orgId/tasks/:taskId' ||
-    routePattern === '/api/orgs/:orgId/import-local'
+    routePattern === '/api/v1/orgs/:orgId/tasks' ||
+    routePattern === '/api/v1/orgs/:orgId/tasks/:taskId' ||
+    routePattern === '/api/v1/orgs/:orgId/import-local'
   );
 }
 
@@ -411,7 +413,7 @@ app.use((req, res, next) => {
       }
     }
 
-    if (routePattern === '/api/orgs/:orgId/inbox-from-email') {
+    if (routePattern === '/api/v1/orgs/:orgId/inbox-from-email') {
       if (res.statusCode >= 200 && res.statusCode < 400) {
         recordOperationalEventMetric('outlook.import.success');
       } else {
@@ -434,6 +436,14 @@ function sendError(res, status, code, message, details) {
     details: details ?? undefined,
   });
 }
+
+const rateLimitAuth = createAuthRateLimiter({
+  consumeAuthRateLimit,
+  clearExpiredAuthRateLimits,
+  sendError,
+  defaultMaxAttempts: RATE_LIMIT_MAX_ATTEMPTS,
+  defaultWindowMs: RATE_LIMIT_WINDOW_MS,
+});
 
 function isLoopbackIp(value) {
   return value === '127.0.0.1' || value === '::1' || value === '::ffff:127.0.0.1';
@@ -797,49 +807,6 @@ function createMfaQrDataUrl({ accountEmail, secret }) {
     otpauthUrl,
     qrDataUrl,
   }));
-}
-
-function rateLimitAuth({
-  keyPrefix,
-  maxAttempts = RATE_LIMIT_MAX_ATTEMPTS,
-  windowMs = RATE_LIMIT_WINDOW_MS,
-}) {
-  return (req, res, next) => {
-    const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
-    const key = `${keyPrefix}:${req.ip}:${email}`;
-    const now = Date.now();
-    const existing = authRateMap.get(key);
-
-    if (!existing || existing.resetAt <= now) {
-      authRateMap.set(key, { count: 1, resetAt: now + windowMs });
-      next();
-      return;
-    }
-
-    if (existing.count >= maxAttempts) {
-      const retryAfterSeconds = Math.ceil((existing.resetAt - now) / 1000);
-      res.setHeader('Retry-After', String(Math.max(1, retryAfterSeconds)));
-      sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Try again later.');
-      return;
-    }
-
-    existing.count += 1;
-    authRateMap.set(key, existing);
-    next();
-  };
-}
-
-const authRateCleanup = setInterval(() => {
-  const now = Date.now();
-  authRateMap.forEach((entry, key) => {
-    if (entry.resetAt <= now) {
-      authRateMap.delete(key);
-    }
-  });
-}, 60_000);
-
-if (typeof authRateCleanup.unref === 'function') {
-  authRateCleanup.unref();
 }
 
 const orgStreams = new Map();
@@ -1512,6 +1479,71 @@ function getRefreshTokenFromRequest(req, fallbackBodyToken) {
   return cookies[REFRESH_TOKEN_COOKIE_NAME] || null;
 }
 
+function listAccountDeletionBlockers(userId) {
+  const ownershipRows = db
+    .prepare(
+      `SELECT
+         o.id,
+         o.name,
+         SUM(CASE WHEN m.role = 'owner' THEN 1 ELSE 0 END) AS owner_count,
+         COUNT(*) AS member_count
+       FROM orgs o
+       JOIN org_members m ON m.org_id = o.id
+       WHERE o.id IN (
+         SELECT org_id
+         FROM org_members
+         WHERE user_id = ? AND role = 'owner'
+       )
+       GROUP BY o.id, o.name`
+    )
+    .all(userId);
+
+  return ownershipRows
+    .filter((row) => Number(row.owner_count || 0) <= 1 && Number(row.member_count || 0) > 1)
+    .map((row) => ({
+      orgId: row.id,
+      orgName: row.name,
+      ownerCount: Number(row.owner_count || 0),
+      memberCount: Number(row.member_count || 0),
+    }));
+}
+
+const deleteAccountTransaction = db.transaction((userId) => {
+  const transferCandidates = db
+    .prepare('SELECT id FROM orgs WHERE created_by = ?')
+    .all(userId)
+    .map((row) => row.id);
+
+  transferCandidates.forEach((orgId) => {
+    const successor = db
+      .prepare(
+        `SELECT user_id
+         FROM org_members
+         WHERE org_id = ? AND user_id != ?
+         ORDER BY
+           CASE role
+             WHEN 'owner' THEN 0
+             WHEN 'admin' THEN 1
+             WHEN 'member' THEN 2
+             ELSE 3
+           END ASC,
+           joined_at ASC
+         LIMIT 1`
+      )
+      .get(orgId, userId);
+
+    if (successor?.user_id) {
+      db.prepare('UPDATE orgs SET created_by = ? WHERE id = ?').run(successor.user_id, orgId);
+      return;
+    }
+
+    db.prepare('DELETE FROM orgs WHERE id = ?').run(orgId);
+  });
+
+  const removed = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  return removed.changes > 0;
+});
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
@@ -1537,7 +1569,7 @@ app.get('/metrics/slo', requireMetricsToken, (_req, res) => {
   });
 });
 
-app.post('/api/auth/register', rateLimitAuth({ keyPrefix: 'auth-register' }), async (req, res) => {
+app.post('/api/v1/auth/register', rateLimitAuth({ keyPrefix: 'auth-register' }), async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid registration payload.', parsed.error.flatten());
@@ -1612,7 +1644,7 @@ app.post('/api/auth/register', rateLimitAuth({ keyPrefix: 'auth-register' }), as
   });
 });
 
-app.post('/api/auth/login', rateLimitAuth({ keyPrefix: 'auth-login' }), async (req, res) => {
+app.post('/api/v1/auth/login', rateLimitAuth({ keyPrefix: 'auth-login' }), async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid login payload.', parsed.error.flatten());
@@ -1693,7 +1725,7 @@ app.post('/api/auth/login', rateLimitAuth({ keyPrefix: 'auth-login' }), async (r
 });
 
 app.post(
-  '/api/auth/microsoft/exchange',
+  '/api/v1/auth/microsoft/exchange',
   rateLimitAuth({ keyPrefix: 'auth-microsoft-exchange', maxAttempts: 30 }),
   async (req, res) => {
     const parsed = microsoftExchangeSchema.safeParse(req.body);
@@ -1802,7 +1834,7 @@ app.post(
 );
 
 app.post(
-  '/api/auth/refresh',
+  '/api/v1/auth/refresh',
   rateLimitAuth({ keyPrefix: 'auth-refresh', maxAttempts: 30 }),
   (req, res) => {
     const parsed = refreshSchema.safeParse(req.body ?? {});
@@ -1865,7 +1897,7 @@ app.post(
   }
 );
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/v1/auth/logout', (req, res) => {
   const refreshToken = getRefreshTokenFromRequest(req, req.body?.refreshToken);
   if (refreshToken) {
     const refreshTokenHash = hashToken(refreshToken);
@@ -1879,8 +1911,34 @@ app.post('/api/auth/logout', (req, res) => {
   res.status(204).send();
 });
 
+app.delete('/api/v1/auth/account', requireAuth, (req, res) => {
+  const blockers = listAccountDeletionBlockers(req.user.id);
+  if (blockers.length > 0) {
+    sendError(
+      res,
+      409,
+      'ACCOUNT_DELETE_BLOCKED',
+      'Transfer workspace ownership before deleting this account.',
+      {
+        blockedOrgs: blockers,
+      }
+    );
+    return;
+  }
+
+  const deleted = deleteAccountTransaction(req.user.id);
+  clearAuthCookies(res);
+
+  if (!deleted) {
+    sendError(res, 404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
+    return;
+  }
+
+  res.status(204).send();
+});
+
 app.post(
-  '/api/auth/resend-verification',
+  '/api/v1/auth/resend-verification',
   rateLimitAuth({ keyPrefix: 'auth-resend-verification' }),
   async (req, res) => {
     const parsed = emailOnlySchema.safeParse(req.body);
@@ -1936,7 +1994,7 @@ app.post(
 );
 
 app.post(
-  '/api/auth/verify-email',
+  '/api/v1/auth/verify-email',
   rateLimitAuth({ keyPrefix: 'auth-verify-email', maxAttempts: 20 }),
   (req, res) => {
     const parsed = verifyEmailSchema.safeParse(req.body);
@@ -1967,7 +2025,7 @@ app.post(
 );
 
 app.post(
-  '/api/auth/request-password-reset',
+  '/api/v1/auth/request-password-reset',
   rateLimitAuth({ keyPrefix: 'auth-request-reset' }),
   async (req, res) => {
     const parsed = emailOnlySchema.safeParse(req.body);
@@ -2022,7 +2080,7 @@ app.post(
 );
 
 app.post(
-  '/api/auth/reset-password',
+  '/api/v1/auth/reset-password',
   rateLimitAuth({ keyPrefix: 'auth-reset-password' }),
   async (req, res) => {
     const parsed = resetPasswordSchema.safeParse(req.body);
@@ -2055,7 +2113,7 @@ app.post(
   }
 );
 
-app.get('/api/auth/sessions', requireAuth, (req, res) => {
+app.get('/api/v1/auth/sessions', requireAuth, (req, res) => {
   const sessions = db
     .prepare(
       `SELECT id, expires_at, revoked_at, created_at, last_used_at, user_agent, ip_address
@@ -2068,7 +2126,7 @@ app.get('/api/auth/sessions', requireAuth, (req, res) => {
   res.json({ sessions });
 });
 
-app.post('/api/auth/mfa/enroll/start', requireAuth, async (req, res) => {
+app.post('/api/v1/auth/mfa/enroll/start', requireAuth, async (req, res) => {
   const dbUser = db
     .prepare('SELECT id, email, mfa_enabled FROM users WHERE id = ?')
     .get(req.user.id);
@@ -2100,7 +2158,7 @@ app.post('/api/auth/mfa/enroll/start', requireAuth, async (req, res) => {
   });
 });
 
-app.post('/api/auth/mfa/enroll/confirm', requireAuth, (req, res) => {
+app.post('/api/v1/auth/mfa/enroll/confirm', requireAuth, (req, res) => {
   const parsed = mfaConfirmSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(
@@ -2147,7 +2205,7 @@ app.post('/api/auth/mfa/enroll/confirm', requireAuth, (req, res) => {
   });
 });
 
-app.post('/api/auth/mfa/disable', requireAuth, (req, res) => {
+app.post('/api/v1/auth/mfa/disable', requireAuth, (req, res) => {
   const parsed = mfaDisableSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid MFA disable payload.', parsed.error.flatten());
@@ -2192,12 +2250,12 @@ app.post('/api/auth/mfa/disable', requireAuth, (req, res) => {
   });
 });
 
-app.get('/api/me', requireAuth, (req, res) => {
+app.get('/api/v1/me', requireAuth, (req, res) => {
   const orgs = mapOrgRows(req.user.id);
   res.json({ user: mapUserRow(req.user), orgs });
 });
 
-app.get('/api/admin/overview', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+app.get('/api/v1/admin/overview', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
   const parsed = adminScopeQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid admin overview query.', parsed.error.flatten());
@@ -2284,7 +2342,7 @@ app.get('/api/admin/overview', requireAdminApiEnabled, requireAuth, requireOwner
   });
 });
 
-app.get('/api/admin/users', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+app.get('/api/v1/admin/users', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
   const parsed = adminUsersQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid admin users query.', parsed.error.flatten());
@@ -2323,7 +2381,7 @@ app.get('/api/admin/users', requireAdminApiEnabled, requireAuth, requireOwner, (
 });
 
 app.post(
-  '/api/admin/users/:userId/resend-verification',
+  '/api/v1/admin/users/:userId/resend-verification',
   requireAdminApiEnabled,
   requireAuth,
   requireOwner,
@@ -2436,7 +2494,7 @@ app.post(
   }
 );
 
-app.get('/api/admin/orgs', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+app.get('/api/v1/admin/orgs', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
   const parsed = adminOrgsQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid admin orgs query.', parsed.error.flatten());
@@ -2483,7 +2541,7 @@ app.get('/api/admin/orgs', requireAdminApiEnabled, requireAuth, requireOwner, (r
   });
 });
 
-app.get('/api/admin/conflicts', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+app.get('/api/v1/admin/conflicts', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
   const parsed = adminConflictsQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid admin conflicts query.', parsed.error.flatten());
@@ -2516,7 +2574,7 @@ app.get('/api/admin/conflicts', requireAdminApiEnabled, requireAuth, requireOwne
   });
 });
 
-app.get('/api/admin/sync-health', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+app.get('/api/v1/admin/sync-health', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
   const parsed = adminScopeQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(
@@ -2568,7 +2626,7 @@ app.get('/api/admin/sync-health', requireAdminApiEnabled, requireAuth, requireOw
 });
 
 app.get(
-  '/api/admin/email-health',
+  '/api/v1/admin/email-health',
   requireAdminApiEnabled,
   requireAuth,
   requireOwner,
@@ -2618,7 +2676,7 @@ app.get(
   }
 );
 
-app.post('/api/ops/events', requireAuth, (req, res) => {
+app.post('/api/v1/ops/events', requireAuth, (req, res) => {
   const parsed = operationalEventSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid telemetry payload.', parsed.error.flatten());
@@ -2659,7 +2717,7 @@ app.post('/api/ops/events', requireAuth, (req, res) => {
   });
 });
 
-app.get('/api/ops/alerts', requireAuth, (req, res) => {
+app.get('/api/v1/ops/alerts', requireAuth, (req, res) => {
   const querySchema = z.object({
     orgId: z.string().min(1).optional(),
     windowMinutes: z.coerce
@@ -2714,12 +2772,12 @@ app.get('/api/ops/alerts', requireAuth, (req, res) => {
   });
 });
 
-app.get('/api/orgs', requireAuth, (req, res) => {
+app.get('/api/v1/orgs', requireAuth, (req, res) => {
   const orgs = mapOrgRows(req.user.id);
   res.json({ orgs });
 });
 
-app.post('/api/orgs', requireAuth, (req, res) => {
+app.post('/api/v1/orgs', requireAuth, (req, res) => {
   const schema = z.object({ name: z.string().min(1).max(120) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -2789,7 +2847,7 @@ function requireSseStreamAuth(req, res, next) {
   });
 }
 
-app.post('/api/orgs/:orgId/stream-token', requireAuth, requireOrgAccess, (req, res) => {
+app.post('/api/v1/orgs/:orgId/stream-token', requireAuth, requireOrgAccess, (req, res) => {
   const parsed = streamTokenRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid stream token payload.', parsed.error.flatten());
@@ -2809,7 +2867,7 @@ app.post('/api/orgs/:orgId/stream-token', requireAuth, requireOrgAccess, (req, r
   });
 });
 
-app.get('/api/orgs/:orgId/stream', requireSseStreamAuth, requireOrgAccess, (req, res) => {
+app.get('/api/v1/orgs/:orgId/stream', requireSseStreamAuth, requireOrgAccess, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -2858,12 +2916,12 @@ const presenceReleaseAllSchema = z.object({
   sessionId: z.string().min(6).max(120),
 });
 
-app.get('/api/orgs/:orgId/presence', requireAuth, requireOrgAccess, (req, res) => {
+app.get('/api/v1/orgs/:orgId/presence', requireAuth, requireOrgAccess, (req, res) => {
   res.json({ locks: listPresenceLocks(req.params.orgId) });
 });
 
 app.post(
-  '/api/orgs/:orgId/presence/claim',
+  '/api/v1/orgs/:orgId/presence/claim',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -2959,7 +3017,7 @@ app.post(
 );
 
 app.post(
-  '/api/orgs/:orgId/presence/release',
+  '/api/v1/orgs/:orgId/presence/release',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -3000,7 +3058,7 @@ app.post(
 );
 
 app.post(
-  '/api/orgs/:orgId/presence/release-all',
+  '/api/v1/orgs/:orgId/presence/release-all',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -3022,7 +3080,7 @@ app.post(
   }
 );
 
-app.get('/api/orgs/:orgId/members', requireAuth, requireOrgAccess, (req, res) => {
+app.get('/api/v1/orgs/:orgId/members', requireAuth, requireOrgAccess, (req, res) => {
   const members = db
     .prepare(
       `SELECT m.user_id, m.role, u.name, u.email
@@ -3038,7 +3096,7 @@ app.get('/api/orgs/:orgId/members', requireAuth, requireOrgAccess, (req, res) =>
 });
 
 app.post(
-  '/api/orgs/:orgId/members',
+  '/api/v1/orgs/:orgId/members',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin']),
@@ -3116,7 +3174,7 @@ app.post(
 );
 
 app.patch(
-  '/api/orgs/:orgId/members/:userId',
+  '/api/v1/orgs/:orgId/members/:userId',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin']),
@@ -3206,7 +3264,7 @@ app.patch(
 );
 
 app.delete(
-  '/api/orgs/:orgId/members/:userId',
+  '/api/v1/orgs/:orgId/members/:userId',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin']),
@@ -3317,7 +3375,7 @@ const taskListQuerySchema = z.object({
   since: z.string().datetime().optional(),
 });
 
-app.get('/api/orgs/:orgId/tasks', requireAuth, requireOrgAccess, (req, res) => {
+app.get('/api/v1/orgs/:orgId/tasks', requireAuth, requireOrgAccess, (req, res) => {
   const parsed = taskListQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid task list query.', parsed.error.flatten());
@@ -3370,7 +3428,7 @@ app.get('/api/orgs/:orgId/tasks', requireAuth, requireOrgAccess, (req, res) => {
 });
 
 app.post(
-  '/api/orgs/:orgId/tasks',
+  '/api/v1/orgs/:orgId/tasks',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -3487,7 +3545,7 @@ app.post(
 );
 
 app.put(
-  '/api/orgs/:orgId/tasks/:taskId',
+  '/api/v1/orgs/:orgId/tasks/:taskId',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -3700,7 +3758,7 @@ app.put(
 );
 
 app.post(
-  '/api/orgs/:orgId/tasks/:taskId/end-prompt',
+  '/api/v1/orgs/:orgId/tasks/:taskId/end-prompt',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -3810,7 +3868,7 @@ app.post(
 );
 
 app.delete(
-  '/api/orgs/:orgId/tasks/:taskId',
+  '/api/v1/orgs/:orgId/tasks/:taskId',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin']),
@@ -3899,7 +3957,7 @@ const conflictResolutionLogSchema = z.object({
 });
 
 app.post(
-  '/api/orgs/:orgId/tasks/:taskId/conflict-resolution',
+  '/api/v1/orgs/:orgId/tasks/:taskId/conflict-resolution',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -3929,7 +3987,7 @@ app.post(
   }
 );
 
-app.get('/api/orgs/:orgId/activity', requireAuth, requireOrgAccess, (req, res) => {
+app.get('/api/v1/orgs/:orgId/activity', requireAuth, requireOrgAccess, (req, res) => {
   const parsed = activityQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(res, 400, 'INVALID_INPUT', 'Invalid activity query.', parsed.error.flatten());
@@ -3994,7 +4052,7 @@ app.get('/api/orgs/:orgId/activity', requireAuth, requireOrgAccess, (req, res) =
 });
 
 app.post(
-  '/api/orgs/:orgId/import-local',
+  '/api/v1/orgs/:orgId/import-local',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),
@@ -4120,7 +4178,7 @@ app.post(
 );
 
 app.post(
-  '/api/orgs/:orgId/inbox-from-email',
+  '/api/v1/orgs/:orgId/inbox-from-email',
   requireAuth,
   requireOrgAccess,
   requireOrgRole(['owner', 'admin', 'member']),

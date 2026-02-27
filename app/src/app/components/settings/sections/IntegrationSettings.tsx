@@ -168,7 +168,7 @@ export default function IntegrationSettings() {
       query.set('limit', '250');
 
       const payload = await cloudRequest<{ events: AuditEvent[] }>(
-        `/api/orgs/${activeOrgId}/activity?${query.toString()}`,
+        `/api/v1/orgs/${activeOrgId}/activity?${query.toString()}`,
         {
           token,
         }

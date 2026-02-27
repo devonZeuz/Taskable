@@ -209,7 +209,7 @@ function toQueryString<T extends object>(params: T): string {
 }
 
 export async function getAdminOverview(token: string, params: AdminBaseParams = {}) {
-  return cloudRequest<AdminOverviewResponse>(`/api/admin/overview${toQueryString(params)}`, {
+  return cloudRequest<AdminOverviewResponse>(`/api/v1/admin/overview${toQueryString(params)}`, {
     token,
   });
 }
@@ -218,14 +218,14 @@ export async function getAdminUsers(
   token: string,
   params: AdminPaginationParams & { query?: string } = {}
 ) {
-  return cloudRequest<AdminUsersResponse>(`/api/admin/users${toQueryString(params)}`, {
+  return cloudRequest<AdminUsersResponse>(`/api/v1/admin/users${toQueryString(params)}`, {
     token,
   });
 }
 
 export async function resendVerification(token: string, userId: string) {
   return cloudRequest<AdminResendVerificationResponse>(
-    `/api/admin/users/${encodeURIComponent(userId)}/resend-verification`,
+    `/api/v1/admin/users/${encodeURIComponent(userId)}/resend-verification`,
     {
       method: 'POST',
       token,
@@ -234,7 +234,7 @@ export async function resendVerification(token: string, userId: string) {
 }
 
 export async function getAdminOrgs(token: string, params: AdminPaginationParams = {}) {
-  return cloudRequest<AdminOrgsResponse>(`/api/admin/orgs${toQueryString(params)}`, {
+  return cloudRequest<AdminOrgsResponse>(`/api/v1/admin/orgs${toQueryString(params)}`, {
     token,
   });
 }
@@ -243,19 +243,19 @@ export async function getAdminConflicts(
   token: string,
   params: AdminPaginationParams & { status?: 'unresolved' | 'all' } = {}
 ) {
-  return cloudRequest<AdminConflictsResponse>(`/api/admin/conflicts${toQueryString(params)}`, {
+  return cloudRequest<AdminConflictsResponse>(`/api/v1/admin/conflicts${toQueryString(params)}`, {
     token,
   });
 }
 
 export async function getAdminSyncHealth(token: string, params: AdminBaseParams = {}) {
-  return cloudRequest<AdminSyncHealthResponse>(`/api/admin/sync-health${toQueryString(params)}`, {
+  return cloudRequest<AdminSyncHealthResponse>(`/api/v1/admin/sync-health${toQueryString(params)}`, {
     token,
   });
 }
 
 export async function getAdminEmailHealth(token: string, params: AdminBaseParams = {}) {
-  return cloudRequest<AdminEmailHealthResponse>(`/api/admin/email-health${toQueryString(params)}`, {
+  return cloudRequest<AdminEmailHealthResponse>(`/api/v1/admin/email-health${toQueryString(params)}`, {
     token,
   });
 }

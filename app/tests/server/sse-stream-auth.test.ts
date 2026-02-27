@@ -116,7 +116,7 @@ describe('SSE stream token auth hardening', () => {
     const register = await jsonRequest<{
       accessToken: string;
       defaultOrgId: string;
-    }>('/api/auth/register', {
+    }>('/api/v1/auth/register', {
       method: 'POST',
       body: {
         name: 'SSE Replay Tester',
@@ -130,7 +130,7 @@ describe('SSE stream token auth hardening', () => {
     const orgId = register.body.defaultOrgId;
 
     const streamTokenResp = await jsonRequest<{ streamToken: string }>(
-      `/api/orgs/${orgId}/stream-token`,
+      `/api/v1/orgs/${orgId}/stream-token`,
       {
         method: 'POST',
         token,
@@ -144,13 +144,13 @@ describe('SSE stream token auth hardening', () => {
     const streamToken = streamTokenResp.body.streamToken;
 
     const firstConnect = await fetch(
-      `${API_BASE}/api/orgs/${orgId}/stream?sessionId=session_replay_test&streamToken=${encodeURIComponent(streamToken)}`
+      `${API_BASE}/api/v1/orgs/${orgId}/stream?sessionId=session_replay_test&streamToken=${encodeURIComponent(streamToken)}`
     );
     expect(firstConnect.status).toBe(200);
     await firstConnect.body?.cancel();
 
     const replayConnect = await fetch(
-      `${API_BASE}/api/orgs/${orgId}/stream?sessionId=session_replay_test&streamToken=${encodeURIComponent(streamToken)}`
+      `${API_BASE}/api/v1/orgs/${orgId}/stream?sessionId=session_replay_test&streamToken=${encodeURIComponent(streamToken)}`
     );
     expect(replayConnect.status).toBe(401);
     const replayPayload = (await replayConnect.json()) as { code?: string };
@@ -161,7 +161,7 @@ describe('SSE stream token auth hardening', () => {
     const register = await jsonRequest<{
       accessToken: string;
       defaultOrgId: string;
-    }>('/api/auth/register', {
+    }>('/api/v1/auth/register', {
       method: 'POST',
       body: {
         name: 'SSE Scope Tester',
@@ -174,7 +174,7 @@ describe('SSE stream token auth hardening', () => {
     const token = register.body.accessToken;
     const orgA = register.body.defaultOrgId;
 
-    const createOrg = await jsonRequest<{ org: { id: string } }>('/api/orgs', {
+    const createOrg = await jsonRequest<{ org: { id: string } }>('/api/v1/orgs', {
       method: 'POST',
       token,
       body: {
@@ -185,7 +185,7 @@ describe('SSE stream token auth hardening', () => {
     const orgB = createOrg.body.org.id;
 
     const streamTokenResp = await jsonRequest<{ streamToken: string }>(
-      `/api/orgs/${orgA}/stream-token`,
+      `/api/v1/orgs/${orgA}/stream-token`,
       {
         method: 'POST',
         token,
@@ -199,14 +199,14 @@ describe('SSE stream token auth hardening', () => {
     const streamToken = streamTokenResp.body.streamToken;
 
     const wrongOrgConnect = await fetch(
-      `${API_BASE}/api/orgs/${orgB}/stream?sessionId=session_scope_test&streamToken=${encodeURIComponent(streamToken)}`
+      `${API_BASE}/api/v1/orgs/${orgB}/stream?sessionId=session_scope_test&streamToken=${encodeURIComponent(streamToken)}`
     );
     expect(wrongOrgConnect.status).toBe(401);
     const wrongOrgPayload = (await wrongOrgConnect.json()) as { code?: string };
     expect(wrongOrgPayload.code).toBe('SSE_TOKEN_INVALID');
 
     const wrongSessionConnect = await fetch(
-      `${API_BASE}/api/orgs/${orgA}/stream?sessionId=session_scope_other&streamToken=${encodeURIComponent(streamToken)}`
+      `${API_BASE}/api/v1/orgs/${orgA}/stream?sessionId=session_scope_other&streamToken=${encodeURIComponent(streamToken)}`
     );
     expect(wrongSessionConnect.status).toBe(401);
     const wrongSessionPayload = (await wrongSessionConnect.json()) as { code?: string };
@@ -217,7 +217,7 @@ describe('SSE stream token auth hardening', () => {
     const register = await jsonRequest<{
       accessToken: string;
       defaultOrgId: string;
-    }>('/api/auth/register', {
+    }>('/api/v1/auth/register', {
       method: 'POST',
       body: {
         name: 'SSE Expiry Tester',
@@ -231,7 +231,7 @@ describe('SSE stream token auth hardening', () => {
     const orgId = register.body.defaultOrgId;
 
     const streamTokenResp = await jsonRequest<{ streamToken: string }>(
-      `/api/orgs/${orgId}/stream-token`,
+      `/api/v1/orgs/${orgId}/stream-token`,
       {
         method: 'POST',
         token,
@@ -246,7 +246,7 @@ describe('SSE stream token auth hardening', () => {
     await expireAuthToken(streamToken);
 
     const expiredConnect = await fetch(
-      `${API_BASE}/api/orgs/${orgId}/stream?sessionId=session_expiry_test&streamToken=${encodeURIComponent(streamToken)}`
+      `${API_BASE}/api/v1/orgs/${orgId}/stream?sessionId=session_expiry_test&streamToken=${encodeURIComponent(streamToken)}`
     );
     expect(expiredConnect.status).toBe(401);
     const expiredPayload = (await expiredConnect.json()) as { code?: string };

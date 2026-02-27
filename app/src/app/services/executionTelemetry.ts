@@ -233,7 +233,7 @@ export async function flushExecutionTelemetry(
   const syncedIds = new Set<string>();
   for (const event of unsynced) {
     try {
-      await cloudRequest('/api/ops/events', {
+      await cloudRequest('/api/v1/ops/events', {
         method: 'POST',
         token,
         body: {

@@ -40,7 +40,7 @@ export async function loginWithPassword(params: {
   mfaTicket?: string;
   mfaCode?: string;
 }) {
-  const payload = await cloudRequest<CloudAuthPayload>('/api/auth/login', {
+  const payload = await cloudRequest<CloudAuthPayload>('/api/v1/auth/login', {
     method: 'POST',
     body: {
       email: params.email,
@@ -57,7 +57,7 @@ export async function registerWithPassword(params: {
   email: string;
   password: string;
 }) {
-  const payload = await cloudRequest<CloudAuthPayload>('/api/auth/register', {
+  const payload = await cloudRequest<CloudAuthPayload>('/api/v1/auth/register', {
     method: 'POST',
     body: {
       name: params.name,
@@ -69,21 +69,21 @@ export async function registerWithPassword(params: {
 }
 
 export async function verifyEmailToken(token: string) {
-  await cloudRequest('/api/auth/verify-email', {
+  await cloudRequest('/api/v1/auth/verify-email', {
     method: 'POST',
     body: { token },
   });
 }
 
 export async function requestPasswordReset(email: string) {
-  await cloudRequest('/api/auth/request-password-reset', {
+  await cloudRequest('/api/v1/auth/request-password-reset', {
     method: 'POST',
     body: { email },
   });
 }
 
 export async function resetPassword(token: string, password: string) {
-  await cloudRequest('/api/auth/reset-password', {
+  await cloudRequest('/api/v1/auth/reset-password', {
     method: 'POST',
     body: { token, password },
   });

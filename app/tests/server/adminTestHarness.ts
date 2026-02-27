@@ -141,7 +141,7 @@ export async function registerUser(baseUrl: string, suffix: string): Promise<Reg
     accessToken?: string;
     refreshToken: string;
     defaultOrgId: string;
-  }>(baseUrl, '/api/auth/register', {
+  }>(baseUrl, '/api/v1/auth/register', {
     method: 'POST',
     body: {
       name: `Admin ${suffix}`,
@@ -158,9 +158,9 @@ export async function registerUser(baseUrl: string, suffix: string): Promise<Reg
     throw new Error('Missing session payload from register.');
   }
 
-  const me = await jsonRequest<{ user: { id: string } }>(baseUrl, '/api/me', { token });
+  const me = await jsonRequest<{ user: { id: string } }>(baseUrl, '/api/v1/me', { token });
   if (me.status !== 200 || !me.body.user?.id) {
-    throw new Error('Unable to resolve user id from /api/me.');
+    throw new Error('Unable to resolve user id from /api/v1/me.');
   }
 
   return {

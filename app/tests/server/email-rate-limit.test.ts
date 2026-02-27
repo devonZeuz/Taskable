@@ -28,7 +28,7 @@ describe('admin resend verification rate limiting', () => {
 
     const addMember = await jsonRequest<{ member?: { id: string } }>(
       server!.baseUrl,
-      `/api/orgs/${owner.orgId}/members`,
+      `/api/v1/orgs/${owner.orgId}/members`,
       {
         method: 'POST',
         token: owner.token,
@@ -43,7 +43,7 @@ describe('admin resend verification rate limiting', () => {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const resend = await jsonRequest<{ ok?: boolean; userId?: string }>(
         server!.baseUrl,
-        `/api/admin/users/${target.userId}/resend-verification`,
+        `/api/v1/admin/users/${target.userId}/resend-verification`,
         {
           method: 'POST',
           token: owner.token,
@@ -56,7 +56,7 @@ describe('admin resend verification rate limiting', () => {
 
     const blocked = await jsonRequest<{ code?: string }>(
       server!.baseUrl,
-      `/api/admin/users/${target.userId}/resend-verification`,
+      `/api/v1/admin/users/${target.userId}/resend-verification`,
       {
         method: 'POST',
         token: owner.token,

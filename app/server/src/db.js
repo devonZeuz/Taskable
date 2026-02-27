@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,11 +17,10 @@ const configuredDbPath = configuredDbPathRaw
 const dbPath = configuredDbPath ?? path.join(dataDir, 'taskable.db');
 const dbDir = dbPath === ':memory:' ? null : path.dirname(dbPath);
 
-if (process.env.NODE_ENV === 'production' && dbPath !== ':memory:' && !configuredDbPath) {
-  console.error(
-    '[db] FATAL: TASKABLE_DB_PATH is required in production. Configure a persistent disk path (for example, /data/tareva.db).'
+if (process.env.NODE_ENV === 'production' && !configuredDbPath) {
+  console.warn(
+    '[db] WARNING: TASKABLE_DB_PATH is not set. Data will not persist across restarts. Configure a persistent disk before production launch.'
   );
-  process.exit(1);
 }
 
 if (dbDir && !fs.existsSync(dbDir)) {
@@ -131,6 +131,14 @@ db.exec(`
     FOREIGN KEY (replaced_by_session_id) REFERENCES user_sessions(id) ON DELETE SET NULL
   );
 
+  CREATE TABLE IF NOT EXISTS auth_rate_limits (
+    rate_key TEXT PRIMARY KEY,
+    attempt_count INTEGER NOT NULL,
+    reset_at_ms INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS auth_tokens (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -160,6 +168,7 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry ON user_sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_auth_rate_limits_reset ON auth_rate_limits(reset_at_ms);
   CREATE INDEX IF NOT EXISTS idx_auth_tokens_user_type ON auth_tokens(user_id, token_type);
   CREATE INDEX IF NOT EXISTS idx_auth_tokens_expiry ON auth_tokens(expires_at);
   CREATE INDEX IF NOT EXISTS idx_ops_events_created_at ON ops_events(created_at);
@@ -605,5 +614,52 @@ export function countVerificationResendsForUser({ targetUserId, sinceIso }) {
 }
 
 export function createId(prefix) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+  const entropyId =
+    typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '')
+      : crypto.randomBytes(16).toString('hex');
+  return `${prefix}_${entropyId}`;
+}
+
+export function consumeAuthRateLimit({ key, nowMs, windowMs, maxAttempts }) {
+  if (!key) {
+    return { allowed: true, retryAfterSeconds: null };
+  }
+
+  const existing = db
+    .prepare(
+      `SELECT attempt_count AS attemptCount, reset_at_ms AS resetAtMs
+       FROM auth_rate_limits
+       WHERE rate_key = ?`
+    )
+    .get(key);
+
+  if (!existing || existing.resetAtMs <= nowMs) {
+    db.prepare(
+      `INSERT INTO auth_rate_limits (rate_key, attempt_count, reset_at_ms, updated_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(rate_key) DO UPDATE SET
+         attempt_count = excluded.attempt_count,
+         reset_at_ms = excluded.reset_at_ms,
+         updated_at = datetime('now')`
+    ).run(key, 1, nowMs + windowMs);
+    return { allowed: true, retryAfterSeconds: null };
+  }
+
+  if (existing.attemptCount >= maxAttempts) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((existing.resetAtMs - nowMs) / 1000));
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  db.prepare(
+    `UPDATE auth_rate_limits
+     SET attempt_count = ?, updated_at = datetime('now')
+     WHERE rate_key = ?`
+  ).run(existing.attemptCount + 1, key);
+
+  return { allowed: true, retryAfterSeconds: null };
+}
+
+export function clearExpiredAuthRateLimits(nowMs = Date.now()) {
+  db.prepare('DELETE FROM auth_rate_limits WHERE reset_at_ms <= ?').run(nowMs);
 }

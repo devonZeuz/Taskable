@@ -1,16 +1,20 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { useCloudSync } from '../../../context/CloudSyncContext';
 import { useUserPreferences } from '../../../context/UserPreferencesContext';
+import { CloudRequestError } from '../../../services/cloudApi';
 
 export default function ProfileSettings() {
-  const { token, user, orgs, activeOrgId } = useCloudSync();
+  const { token, user, orgs, activeOrgId, deleteAccount } = useCloudSync();
   const {
     preferences: { timezone, language },
     setPreference,
   } = useUserPreferences();
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const activeOrg = useMemo(
     () => orgs.find((org) => org.id === activeOrgId) ?? null,
@@ -43,6 +47,26 @@ export default function ProfileSettings() {
       }
     } catch {
       // ignore
+    }
+  };
+
+  const canDeleteAccount = deleteConfirmation.trim().toLowerCase() === 'delete account';
+
+  const handleDeleteAccount = async () => {
+    if (!canDeleteAccount || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount();
+    } catch (error) {
+      if (error instanceof CloudRequestError) {
+        setDeleteError(error.message);
+      } else if (error instanceof Error) {
+        setDeleteError(error.message);
+      } else {
+        setDeleteError('Unable to delete account right now.');
+      }
+      setDeleteBusy(false);
     }
   };
 
@@ -103,6 +127,42 @@ export default function ProfileSettings() {
           </div>
         </div>
       </section>
+
+      {token ? (
+        <section className="ui-hud-section ui-v1-radius-md border border-[color:var(--hud-danger-border)] p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-danger-text)]">
+            Danger Zone
+          </p>
+          <p className="mt-2 text-sm text-[color:var(--hud-muted)]">
+            Delete your cloud account and personal profile data. This action cannot be undone.
+          </p>
+          <div className="mt-3 space-y-2">
+            <Label htmlFor="delete-account-confirmation">
+              Type <span className="font-semibold">delete account</span> to confirm
+            </Label>
+            <Input
+              id="delete-account-confirmation"
+              value={deleteConfirmation}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              placeholder="delete account"
+              autoComplete="off"
+            />
+            {deleteError ? (
+              <p className="text-xs font-medium text-[color:var(--hud-danger-text)]">{deleteError}</p>
+            ) : null}
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDeleteAccount}
+                disabled={!canDeleteAccount || deleteBusy}
+              >
+                {deleteBusy ? 'Deleting account...' : 'Delete account'}
+              </Button>
+            </div>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -37,7 +37,7 @@ export default function SecuritySettings() {
     }
     setLoadingSessions(true);
     try {
-      const payload = await cloudRequest<{ sessions: SessionRow[] }>('/api/auth/sessions', {
+      const payload = await cloudRequest<{ sessions: SessionRow[] }>('/api/v1/auth/sessions', {
         token,
       });
       setSessions(payload.sessions ?? []);

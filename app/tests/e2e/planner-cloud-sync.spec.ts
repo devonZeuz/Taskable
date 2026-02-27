@@ -56,7 +56,7 @@ async function registerCloudUser(
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const password = 'TarevaE2E#123';
   const email = `cloud-e2e-${suffix}@Tareva.test`;
-  const response = await request.post(`${API_URL}/api/auth/register`, {
+  const response = await request.post(`${API_URL}/api/v1/auth/register`, {
     data: {
       name: `Cloud E2E ${suffix}`,
       email,
@@ -220,7 +220,7 @@ async function deleteTaskViaApi(
 ) {
   const query = typeof ifVersion === 'number' ? `?ifVersion=${ifVersion}` : '';
   const response = await request.delete(
-    `${API_URL}/api/orgs/${seed.orgId}/tasks/${taskId}${query}`,
+    `${API_URL}/api/v1/orgs/${seed.orgId}/tasks/${taskId}${query}`,
     {
       headers: withAuth(seed.token),
     }
@@ -306,7 +306,7 @@ test('supports re-login after signup with case-insensitive + trimmed email looku
   const session = await registerCloudUser(request);
   const mixedCaseEmail = `  ${session.email.replace('cloud-e2e', 'Cloud-E2E')}  `;
 
-  const response = await request.post(`${API_URL}/api/auth/login`, {
+  const response = await request.post(`${API_URL}/api/v1/auth/login`, {
     data: {
       email: mixedCaseEmail,
       password: session.password,
@@ -327,7 +327,7 @@ test('deduplicates end prompt acknowledgements for the same running task', async
   const startDateTime = new Date().toISOString();
   const scheduledEndAt = new Date(Date.now() + 60_000).toISOString();
 
-  const createResponse = await request.post(`${API_URL}/api/orgs/${session.orgId}/tasks`, {
+  const createResponse = await request.post(`${API_URL}/api/v1/orgs/${session.orgId}/tasks`, {
     headers: withAuth(session.token),
     data: {
       title: `Prompt Ack ${Date.now()}`,
@@ -348,7 +348,7 @@ test('deduplicates end prompt acknowledgements for the same running task', async
   };
 
   const firstAck = await request.post(
-    `${API_URL}/api/orgs/${session.orgId}/tasks/${createdPayload.task.id}/end-prompt`,
+    `${API_URL}/api/v1/orgs/${session.orgId}/tasks/${createdPayload.task.id}/end-prompt`,
     {
       headers: withAuth(session.token),
       data: {
@@ -362,7 +362,7 @@ test('deduplicates end prompt acknowledgements for the same running task', async
   expect(firstAckPayload.accepted).toBe(true);
 
   const secondAck = await request.post(
-    `${API_URL}/api/orgs/${session.orgId}/tasks/${createdPayload.task.id}/end-prompt`,
+    `${API_URL}/api/v1/orgs/${session.orgId}/tasks/${createdPayload.task.id}/end-prompt`,
     {
       headers: withAuth(session.token),
       data: {
@@ -379,13 +379,13 @@ test('deduplicates end prompt acknowledgements for the same running task', async
 test('enforces presence locks and supports admin takeover', async ({ request }) => {
   const owner = await registerCloudUser(request);
   const admin = await registerCloudUser(request);
-  const meAdminResponse = await request.get(`${API_URL}/api/me`, {
+  const meAdminResponse = await request.get(`${API_URL}/api/v1/me`, {
     headers: withAuth(admin.token),
   });
   expect(meAdminResponse.ok(), await meAdminResponse.text()).toBeTruthy();
   const meAdminPayload = (await meAdminResponse.json()) as { user: { id: string; email: string } };
 
-  const addMemberResponse = await request.post(`${API_URL}/api/orgs/${owner.orgId}/members`, {
+  const addMemberResponse = await request.post(`${API_URL}/api/v1/orgs/${owner.orgId}/members`, {
     headers: withAuth(owner.token),
     data: {
       email: meAdminPayload.user.email,
@@ -393,7 +393,7 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
   });
   expect(addMemberResponse.ok(), await addMemberResponse.text()).toBeTruthy();
 
-  const membersResponse = await request.get(`${API_URL}/api/orgs/${owner.orgId}/members`, {
+  const membersResponse = await request.get(`${API_URL}/api/v1/orgs/${owner.orgId}/members`, {
     headers: withAuth(owner.token),
   });
   expect(membersResponse.ok(), await membersResponse.text()).toBeTruthy();
@@ -404,7 +404,7 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
   expect(adminMember).toBeTruthy();
 
   const promoteResponse = await request.patch(
-    `${API_URL}/api/orgs/${owner.orgId}/members/${meAdminPayload.user.id}`,
+    `${API_URL}/api/v1/orgs/${owner.orgId}/members/${meAdminPayload.user.id}`,
     {
       headers: withAuth(owner.token),
       data: { role: 'admin' },
@@ -412,7 +412,7 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
   );
   expect(promoteResponse.ok(), await promoteResponse.text()).toBeTruthy();
 
-  const taskCreateResponse = await request.post(`${API_URL}/api/orgs/${owner.orgId}/tasks`, {
+  const taskCreateResponse = await request.post(`${API_URL}/api/v1/orgs/${owner.orgId}/tasks`, {
     headers: withAuth(owner.token),
     data: {
       title: `Locked Task ${Date.now()}`,
@@ -430,7 +430,7 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
     task: StoredTaskSnapshot & { id: string; version: number };
   };
 
-  const ownerClaim = await request.post(`${API_URL}/api/orgs/${owner.orgId}/presence/claim`, {
+  const ownerClaim = await request.post(`${API_URL}/api/v1/orgs/${owner.orgId}/presence/claim`, {
     headers: withAuth(owner.token),
     data: {
       scope: 'task',
@@ -442,7 +442,7 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
   expect(ownerClaim.ok(), await ownerClaim.text()).toBeTruthy();
 
   const adminBlockedUpdate = await request.put(
-    `${API_URL}/api/orgs/${owner.orgId}/tasks/${taskPayload.task.id}`,
+    `${API_URL}/api/v1/orgs/${owner.orgId}/tasks/${taskPayload.task.id}`,
     {
       headers: withAuth(admin.token),
       data: {
@@ -455,7 +455,7 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
   const blockedPayload = (await adminBlockedUpdate.json()) as { code?: string };
   expect(blockedPayload.code).toBe('PRESENCE_LOCKED');
 
-  const adminTakeover = await request.post(`${API_URL}/api/orgs/${owner.orgId}/presence/claim`, {
+  const adminTakeover = await request.post(`${API_URL}/api/v1/orgs/${owner.orgId}/presence/claim`, {
     headers: withAuth(admin.token),
     data: {
       scope: 'task',
@@ -468,7 +468,7 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
   expect(adminTakeover.ok(), await adminTakeover.text()).toBeTruthy();
 
   const adminUpdate = await request.put(
-    `${API_URL}/api/orgs/${owner.orgId}/tasks/${taskPayload.task.id}`,
+    `${API_URL}/api/v1/orgs/${owner.orgId}/tasks/${taskPayload.task.id}`,
     {
       headers: withAuth(admin.token),
       data: {

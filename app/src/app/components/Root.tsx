@@ -606,7 +606,7 @@ function CloudSessionRuntimeGuard({ plannerMode }: { plannerMode: PlannerMode })
       lastCheckKeyRef.current = null;
       return;
     }
-    const endpoint = CLOUD_API_BASE_URL ? `${CLOUD_API_BASE_URL}/api/me` : '/api/me';
+    const endpoint = CLOUD_API_BASE_URL ? `${CLOUD_API_BASE_URL}/api/v1/me` : '/api/v1/me';
     const checkKey = `${plannerMode}:${endpoint}`;
     if (lastCheckKeyRef.current === checkKey) return;
 

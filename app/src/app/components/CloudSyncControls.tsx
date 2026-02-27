@@ -121,7 +121,7 @@ export default function CloudSyncControls() {
     setLoadingConflictAudit(true);
     try {
       const payload = await cloudRequest<{ events: ConflictAuditEvent[] }>(
-        `/api/orgs/${activeOrgId}/activity`,
+        `/api/v1/orgs/${activeOrgId}/activity`,
         { token }
       );
       setConflictAuditEvents(

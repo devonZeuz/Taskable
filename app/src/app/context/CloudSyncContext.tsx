@@ -144,6 +144,7 @@ interface CloudSyncContextType {
   login: (email: string, password: string, options?: CloudLoginOptions) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  deleteAccount: () => Promise<void>;
   refreshSession: () => Promise<void>;
   resendVerification: (email?: string) => Promise<void>;
   verifyEmailToken: (token: string) => Promise<void>;
@@ -508,7 +509,7 @@ export function CloudSyncProvider({
         accessToken?: string;
         refreshToken?: string;
         user?: CloudUser;
-      }>('/api/auth/refresh', {
+      }>('/api/v1/auth/refresh', {
         method: 'POST',
         body: { refreshToken: currentRefresh },
       });
@@ -610,7 +611,7 @@ export function CloudSyncProvider({
 
       if (!enabled || !activeOrgId || !tokenRef.current) return;
       try {
-        await requestWithToken('/api/ops/events', {
+        await requestWithToken('/api/v1/ops/events', {
           method: 'POST',
           body: {
             orgId: activeOrgId,
@@ -786,7 +787,7 @@ export function CloudSyncProvider({
     clearSyncIssue();
 
     try {
-      const mePayload = await requestWithToken<{ user: CloudUser; orgs: CloudOrg[] }>('/api/me');
+      const mePayload = await requestWithToken<{ user: CloudUser; orgs: CloudOrg[] }>('/api/v1/me');
       setUser(mePayload.user);
       setOrgs(mePayload.orgs);
 
@@ -838,7 +839,7 @@ export function CloudSyncProvider({
           accessToken?: string;
           refreshToken?: string;
           user: CloudUser;
-        }>('/api/auth/login', {
+        }>('/api/v1/auth/login', {
           method: 'POST',
           body: {
             email,
@@ -876,7 +877,7 @@ export function CloudSyncProvider({
           refreshToken?: string;
           user: CloudUser;
           defaultOrgId?: string;
-        }>('/api/auth/register', {
+        }>('/api/v1/auth/register', {
           method: 'POST',
           body: { name, email, password },
         });
@@ -903,7 +904,7 @@ export function CloudSyncProvider({
   const logout = useCallback(() => {
     const currentRefresh = refreshTokenRef.current;
     if (currentRefresh) {
-      void cloudRequest('/api/auth/logout', {
+      void cloudRequest('/api/v1/auth/logout', {
         method: 'POST',
         body: { refreshToken: currentRefresh },
       }).catch(() => undefined);
@@ -911,7 +912,7 @@ export function CloudSyncProvider({
 
     if (enabled && tokenRef.current && activeOrgId && claimedPresenceKeysRef.current.size > 0) {
       void cloudRequest<{ released: boolean; locks: PresenceLock[] }>(
-        `/api/orgs/${activeOrgId}/presence/release-all`,
+        `/api/v1/orgs/${activeOrgId}/presence/release-all`,
         {
           method: 'POST',
           token: tokenRef.current,
@@ -938,6 +939,14 @@ export function CloudSyncProvider({
     claimedPresenceKeysRef.current.clear();
   }, [enabled, activeOrgId, clearSyncIssue]);
 
+  const deleteAccount = useCallback(async () => {
+    if (!cloudModeEnabled) return;
+    await requestWithToken('/api/v1/auth/account', {
+      method: 'DELETE',
+    });
+    logout();
+  }, [cloudModeEnabled, requestWithToken, logout]);
+
   const resendVerification = useCallback(
     async (email?: string) => {
       if (!cloudModeEnabled) return;
@@ -945,7 +954,7 @@ export function CloudSyncProvider({
       if (!targetEmail) {
         throw new Error('Email is required.');
       }
-      await cloudRequest('/api/auth/resend-verification', {
+      await cloudRequest('/api/v1/auth/resend-verification', {
         method: 'POST',
         body: { email: targetEmail },
       });
@@ -956,7 +965,7 @@ export function CloudSyncProvider({
   const verifyEmailToken = useCallback(
     async (verificationToken: string) => {
       if (!cloudModeEnabled) return;
-      await cloudRequest('/api/auth/verify-email', {
+      await cloudRequest('/api/v1/auth/verify-email', {
         method: 'POST',
         body: { token: verificationToken },
       });
@@ -968,7 +977,7 @@ export function CloudSyncProvider({
   const requestPasswordReset = useCallback(
     async (email: string) => {
       if (!cloudModeEnabled) return;
-      await cloudRequest('/api/auth/request-password-reset', {
+      await cloudRequest('/api/v1/auth/request-password-reset', {
         method: 'POST',
         body: { email },
       });
@@ -979,7 +988,7 @@ export function CloudSyncProvider({
   const resetPassword = useCallback(
     async (resetToken: string, newPassword: string) => {
       if (!cloudModeEnabled) return;
-      await cloudRequest('/api/auth/reset-password', {
+      await cloudRequest('/api/v1/auth/reset-password', {
         method: 'POST',
         body: { token: resetToken, password: newPassword },
       });
@@ -996,7 +1005,7 @@ export function CloudSyncProvider({
     clearSyncIssue();
     try {
       const payload = await requestWithToken<{ mfa: MfaEnrollmentSetup }>(
-        '/api/auth/mfa/enroll/start',
+        '/api/v1/auth/mfa/enroll/start',
         {
           method: 'POST',
         }
@@ -1019,7 +1028,7 @@ export function CloudSyncProvider({
       clearSyncIssue();
       try {
         const payload = await requestWithToken<{ user?: CloudUser }>(
-          '/api/auth/mfa/enroll/confirm',
+          '/api/v1/auth/mfa/enroll/confirm',
           {
             method: 'POST',
             body: { code },
@@ -1048,7 +1057,7 @@ export function CloudSyncProvider({
       setSyncing(true);
       clearSyncIssue();
       try {
-        const payload = await requestWithToken<{ user?: CloudUser }>('/api/auth/mfa/disable', {
+        const payload = await requestWithToken<{ user?: CloudUser }>('/api/v1/auth/mfa/disable', {
           method: 'POST',
           body: { code },
         });
@@ -1072,7 +1081,7 @@ export function CloudSyncProvider({
     try {
       const payload = await requestWithToken<{
         members: Array<{ id: string; name: string; email?: string; role?: string }>;
-      }>(`/api/orgs/${activeOrgId}/members`);
+      }>(`/api/v1/orgs/${activeOrgId}/members`);
       setMembers(
         payload.members.map((member) => ({
           id: member.id,
@@ -1090,7 +1099,7 @@ export function CloudSyncProvider({
   const addMemberByEmail = useCallback(
     async (email: string) => {
       if (!enabled || !tokenRef.current || !activeOrgId) return;
-      await requestWithToken(`/api/orgs/${activeOrgId}/members`, {
+      await requestWithToken(`/api/v1/orgs/${activeOrgId}/members`, {
         method: 'POST',
         body: { email },
       });
@@ -1102,7 +1111,7 @@ export function CloudSyncProvider({
   const updateMemberRole = useCallback(
     async (memberId: string, role: 'owner' | 'admin' | 'member' | 'viewer') => {
       if (!enabled || !tokenRef.current || !activeOrgId) return;
-      await requestWithToken(`/api/orgs/${activeOrgId}/members/${memberId}`, {
+      await requestWithToken(`/api/v1/orgs/${activeOrgId}/members/${memberId}`, {
         method: 'PATCH',
         body: { role },
       });
@@ -1114,7 +1123,7 @@ export function CloudSyncProvider({
   const removeMember = useCallback(
     async (memberId: string) => {
       if (!enabled || !tokenRef.current || !activeOrgId) return;
-      await requestWithToken(`/api/orgs/${activeOrgId}/members/${memberId}`, {
+      await requestWithToken(`/api/v1/orgs/${activeOrgId}/members/${memberId}`, {
         method: 'DELETE',
       });
       await refreshMembers();
@@ -1126,7 +1135,7 @@ export function CloudSyncProvider({
     if (!enabled || !tokenRef.current || !activeOrgId) return;
     try {
       const payload = await requestWithToken<{ locks: PresenceLock[] }>(
-        `/api/orgs/${activeOrgId}/presence`
+        `/api/v1/orgs/${activeOrgId}/presence`
       );
       setPresenceLocks(Array.isArray(payload.locks) ? payload.locks : []);
     } catch (err) {
@@ -1146,7 +1155,7 @@ export function CloudSyncProvider({
           lock: PresenceLock;
           locks: PresenceLock[];
           takenOver?: boolean;
-        }>(`/api/orgs/${activeOrgId}/presence/claim`, {
+        }>(`/api/v1/orgs/${activeOrgId}/presence/claim`, {
           method: 'POST',
           body: {
             scope,
@@ -1186,7 +1195,7 @@ export function CloudSyncProvider({
 
       try {
         const payload = await requestWithToken<{ released: boolean; locks: PresenceLock[] }>(
-          `/api/orgs/${activeOrgId}/presence/release`,
+          `/api/v1/orgs/${activeOrgId}/presence/release`,
           {
             method: 'POST',
             body: {
@@ -1212,7 +1221,7 @@ export function CloudSyncProvider({
 
     try {
       const payload = await requestWithToken<{ released: boolean; locks: PresenceLock[] }>(
-        `/api/orgs/${activeOrgId}/presence/release-all`,
+        `/api/v1/orgs/${activeOrgId}/presence/release-all`,
         {
           method: 'POST',
           body: {
@@ -1236,7 +1245,7 @@ export function CloudSyncProvider({
 
       try {
         const payload = await requestWithToken<{ accepted: boolean; task?: Task }>(
-          `/api/orgs/${activeOrgId}/tasks/${taskId}/end-prompt`,
+          `/api/v1/orgs/${activeOrgId}/tasks/${taskId}/end-prompt`,
           {
             method: 'POST',
             body: {
@@ -1320,14 +1329,14 @@ export function CloudSyncProvider({
           query.set('since', incrementalSince);
         }
         const pullPath = query.size
-          ? `/api/orgs/${activeOrgId}/tasks?${query.toString()}`
-          : `/api/orgs/${activeOrgId}/tasks`;
+          ? `/api/v1/orgs/${activeOrgId}/tasks?${query.toString()}`
+          : `/api/v1/orgs/${activeOrgId}/tasks`;
         let payload = await requestWithToken<TaskPullResponse>(pullPath);
         let useIncrementalMerge = Boolean(incrementalSince);
 
         // A truncated incremental response can miss intermediate updates; resync full snapshot.
         if (useIncrementalMerge && payload.hasMore) {
-          payload = await requestWithToken<TaskPullResponse>(`/api/orgs/${activeOrgId}/tasks`);
+          payload = await requestWithToken<TaskPullResponse>(`/api/v1/orgs/${activeOrgId}/tasks`);
           useIncrementalMerge = false;
         }
 
@@ -1452,7 +1461,7 @@ export function CloudSyncProvider({
           getTaskVersionForSync(localTask, 'push.create');
           try {
             const createdPayload = await requestWithToken<{ task: Task }>(
-              `/api/orgs/${activeOrgId}/tasks`,
+              `/api/v1/orgs/${activeOrgId}/tasks`,
               {
                 method: 'POST',
                 body: toTaskPayload(localTask),
@@ -1476,7 +1485,7 @@ export function CloudSyncProvider({
         const ifVersion = getTaskVersionForSync(baseTask, 'push.update');
         try {
           const updatedPayload = await requestWithToken<{ task: Task }>(
-            `/api/orgs/${activeOrgId}/tasks/${localTask.id}`,
+            `/api/v1/orgs/${activeOrgId}/tasks/${localTask.id}`,
             {
               method: 'PUT',
               body: {
@@ -1499,7 +1508,7 @@ export function CloudSyncProvider({
           const mergeResult = autoMergeTask(baseTask, localTask, conflict.serverTask);
           if (mergeResult.conflicts.length === 0) {
             const mergedPayload = await requestWithToken<{ task: Task }>(
-              `/api/orgs/${activeOrgId}/tasks/${localTask.id}`,
+              `/api/v1/orgs/${activeOrgId}/tasks/${localTask.id}`,
               {
                 method: 'PUT',
                 body: {
@@ -1530,7 +1539,7 @@ export function CloudSyncProvider({
         if (localById.has(baseTask.id)) continue;
         try {
           await requestWithToken(
-            `/api/orgs/${activeOrgId}/tasks/${baseTask.id}?ifVersion=${getTaskVersionForSync(baseTask, 'push.delete')}`,
+            `/api/v1/orgs/${activeOrgId}/tasks/${baseTask.id}?ifVersion=${getTaskVersionForSync(baseTask, 'push.delete')}`,
             {
               method: 'DELETE',
             }
@@ -1631,7 +1640,7 @@ export function CloudSyncProvider({
       if (!enabled || !activeOrgId || !tokenRef.current) return;
       try {
         await requestWithToken(
-          `/api/orgs/${activeOrgId}/tasks/${conflict.taskId}/conflict-resolution`,
+          `/api/v1/orgs/${activeOrgId}/tasks/${conflict.taskId}/conflict-resolution`,
           {
             method: 'POST',
             body: {
@@ -1660,13 +1669,13 @@ export function CloudSyncProvider({
       try {
         if (conflict.conflictingFields.includes('delete')) {
         await requestWithToken(
-          `/api/orgs/${activeOrgId}/tasks/${taskId}?ifVersion=${getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.delete')}`,
+          `/api/v1/orgs/${activeOrgId}/tasks/${taskId}?ifVersion=${getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.delete')}`,
           {
             method: 'DELETE',
           }
         );
         } else {
-          await requestWithToken<{ task: Task }>(`/api/orgs/${activeOrgId}/tasks/${taskId}`, {
+          await requestWithToken<{ task: Task }>(`/api/v1/orgs/${activeOrgId}/tasks/${taskId}`, {
               method: 'PUT',
               body: {
                 ...toTaskPayload(conflict.localTask),
@@ -1787,7 +1796,7 @@ export function CloudSyncProvider({
               : cloneFieldValue(localRecord[field]);
         });
 
-        await requestWithToken<{ task: Task }>(`/api/orgs/${activeOrgId}/tasks/${taskId}`, {
+        await requestWithToken<{ task: Task }>(`/api/v1/orgs/${activeOrgId}/tasks/${taskId}`, {
           method: 'PUT',
           body: {
             ...toTaskPayload(mergedTask),
@@ -2012,7 +2021,7 @@ export function CloudSyncProvider({
       let streamTokenPayload: { streamToken: string } | null = null;
       try {
         streamTokenPayload = await requestWithToken<{ streamToken: string }>(
-          `/api/orgs/${activeOrgId}/stream-token`,
+          `/api/v1/orgs/${activeOrgId}/stream-token`,
           {
             method: 'POST',
             body: {
@@ -2037,7 +2046,7 @@ export function CloudSyncProvider({
       if (disposed || !streamTokenPayload?.streamToken) return;
       teardownSource();
 
-      const streamUrl = getCloudSseUrl(`/api/orgs/${activeOrgId}/stream`, {
+      const streamUrl = getCloudSseUrl(`/api/v1/orgs/${activeOrgId}/stream`, {
         sessionId: sessionIdRef.current,
         streamToken: streamTokenPayload.streamToken,
       });
@@ -2176,7 +2185,7 @@ export function CloudSyncProvider({
       if (claimedPresenceKeysRef.current.size === 0) return;
       if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return;
 
-      const url = `${CLOUD_API_BASE_URL}/api/orgs/${activeOrgId}/presence/release-all`;
+      const url = `${CLOUD_API_BASE_URL}/api/v1/orgs/${activeOrgId}/presence/release-all`;
       const payload = JSON.stringify({ sessionId: sessionIdRef.current });
       const body = new Blob([payload], { type: 'application/json' });
       navigator.sendBeacon(url, body);
@@ -2255,6 +2264,7 @@ export function CloudSyncProvider({
       login,
       register,
       logout,
+      deleteAccount,
       refreshSession,
       resendVerification,
       verifyEmailToken,
@@ -2305,6 +2315,7 @@ export function CloudSyncProvider({
       login,
       register,
       logout,
+      deleteAccount,
       refreshSession,
       resendVerification,
       verifyEmailToken,

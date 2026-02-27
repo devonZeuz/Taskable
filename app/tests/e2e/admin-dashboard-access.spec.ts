@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function stubCloudBase(page: Page, role: 'owner' | 'member') {
-  await page.route('**/api/me*', async (route) => {
+  await page.route('**/api/v1/me*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -20,7 +20,7 @@ async function stubCloudBase(page: Page, role: 'owner' | 'member') {
     });
   });
 
-  await page.route('**/api/orgs/org_access/tasks*', async (route) => {
+  await page.route('**/api/v1/orgs/org_access/tasks*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -28,7 +28,7 @@ async function stubCloudBase(page: Page, role: 'owner' | 'member') {
     });
   });
 
-  await page.route('**/api/orgs/org_access/members*', async (route) => {
+  await page.route('**/api/v1/orgs/org_access/members*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -36,7 +36,7 @@ async function stubCloudBase(page: Page, role: 'owner' | 'member') {
     });
   });
 
-  await page.route('**/api/orgs/org_access/presence*', async (route) => {
+  await page.route('**/api/v1/orgs/org_access/presence*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -44,7 +44,7 @@ async function stubCloudBase(page: Page, role: 'owner' | 'member') {
     });
   });
 
-  await page.route('**/api/orgs/org_access/stream-token*', async (route) => {
+  await page.route('**/api/v1/orgs/org_access/stream-token*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -52,7 +52,7 @@ async function stubCloudBase(page: Page, role: 'owner' | 'member') {
     });
   });
 
-  await page.route('**/api/orgs/org_access/stream*', async (route) => {
+  await page.route('**/api/v1/orgs/org_access/stream*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -60,7 +60,7 @@ async function stubCloudBase(page: Page, role: 'owner' | 'member') {
     });
   });
 
-  await page.route('**/api/ops/events', async (route) => {
+  await page.route('**/api/v1/ops/events', async (route) => {
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
@@ -84,7 +84,7 @@ test('non-owner in cloud mode cannot access admin dashboard', async ({ page }) =
   });
 
   await stubCloudBase(page, 'member');
-  await page.route('**/api/admin/**', async (route) => {
+  await page.route('**/api/v1/admin/**', async (route) => {
     adminRequests += 1;
     await route.fulfill({
       status: 403,

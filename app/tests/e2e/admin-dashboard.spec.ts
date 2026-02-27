@@ -9,7 +9,7 @@ async function dismissTutorialIfVisible(page: Page) {
 }
 
 async function stubCloudPlannerBase(page: Page, orgRole: 'owner' | 'member' = 'owner') {
-  await page.route('**/api/me*', async (route) => {
+  await page.route('**/api/v1/me*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -28,7 +28,7 @@ async function stubCloudPlannerBase(page: Page, orgRole: 'owner' | 'member' = 'o
     });
   });
 
-  await page.route('**/api/orgs/org_admin/tasks*', async (route) => {
+  await page.route('**/api/v1/orgs/org_admin/tasks*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -36,7 +36,7 @@ async function stubCloudPlannerBase(page: Page, orgRole: 'owner' | 'member' = 'o
     });
   });
 
-  await page.route('**/api/orgs/org_admin/members*', async (route) => {
+  await page.route('**/api/v1/orgs/org_admin/members*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -44,7 +44,7 @@ async function stubCloudPlannerBase(page: Page, orgRole: 'owner' | 'member' = 'o
     });
   });
 
-  await page.route('**/api/orgs/org_admin/presence*', async (route) => {
+  await page.route('**/api/v1/orgs/org_admin/presence*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -52,7 +52,7 @@ async function stubCloudPlannerBase(page: Page, orgRole: 'owner' | 'member' = 'o
     });
   });
 
-  await page.route('**/api/orgs/org_admin/stream-token*', async (route) => {
+  await page.route('**/api/v1/orgs/org_admin/stream-token*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -60,7 +60,7 @@ async function stubCloudPlannerBase(page: Page, orgRole: 'owner' | 'member' = 'o
     });
   });
 
-  await page.route('**/api/orgs/org_admin/stream*', async (route) => {
+  await page.route('**/api/v1/orgs/org_admin/stream*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -68,7 +68,7 @@ async function stubCloudPlannerBase(page: Page, orgRole: 'owner' | 'member' = 'o
     });
   });
 
-  await page.route('**/api/ops/events', async (route) => {
+  await page.route('**/api/v1/ops/events', async (route) => {
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
@@ -96,7 +96,7 @@ test('admin query/localStorage override does not unlock dashboard when env gate 
 
   await stubCloudPlannerBase(page, 'owner');
 
-  await page.route('**/api/admin/**', async (route) => {
+  await page.route('**/api/v1/admin/**', async (route) => {
     adminRequests += 1;
     await route.fulfill({
       status: 403,

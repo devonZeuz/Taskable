@@ -95,7 +95,7 @@ export default function DataBackupSettings() {
     }
 
     try {
-      const payload = await cloudRequest<{ tasks: unknown[] }>(`/api/orgs/${activeOrgId}/tasks`, {
+      const payload = await cloudRequest<{ tasks: unknown[] }>(`/api/v1/orgs/${activeOrgId}/tasks`, {
         token,
       });
       const blob = new Blob(
@@ -138,7 +138,7 @@ export default function DataBackupSettings() {
     if (!confirmed) return;
 
     try {
-      await cloudRequest<{ importedCount: number }>(`/api/orgs/${activeOrgId}/import-local`, {
+      await cloudRequest<{ importedCount: number }>(`/api/v1/orgs/${activeOrgId}/import-local`, {
         method: 'POST',
         token,
         body: {
