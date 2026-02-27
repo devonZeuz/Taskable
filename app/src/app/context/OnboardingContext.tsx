@@ -88,11 +88,17 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const setMode = useCallback((nextMode: PlannerMode) => {
     writePlannerMode(nextMode);
     setModeState(nextMode);
+    if (nextMode === 'local') {
+      setHasCompletedTutorial(readLocalTutorialCompleted());
+      return;
+    }
+    setHasCompletedTutorial(readCloudTutorialCompleted(readCloudUserId()));
   }, []);
 
   const clearMode = useCallback(() => {
     writePlannerMode(null);
     setModeState(null);
+    setHasCompletedTutorial(false);
   }, []);
 
   const setCloudSession = useCallback(
@@ -107,6 +113,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       if (typeof session.userId === 'string') {
         setCloudUserId(session.userId);
         setHasCompletedTutorial(readCloudTutorialCompleted(session.userId));
+      } else {
+        setHasCompletedTutorial(false);
       }
     },
     []

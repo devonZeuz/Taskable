@@ -19,20 +19,21 @@ import {
   isDesktopShell,
 } from '../services/desktopShell';
 import { CLOUD_API_BASE_URL, CLOUD_SYNC_ENABLED } from '../services/cloudApi';
+import { getDayKey, getDayKeyFromDateTime } from '../services/scheduling';
+import { normalizeExecutionStatus } from '../services/taskTimer';
 import type { PlannerMode } from '../services/authStorage';
 import OnboardingTutorialModal from './onboarding/OnboardingTutorialModal';
+import { resolveExecutionModeV1Flag, resolveLayoutV1Flag } from '../flags';
+import { flushExecutionTelemetry } from '../services/executionTelemetry';
+
+const AUTO_START_SESSION_STORAGE_KEY = 'taskable:auto-start-fired';
 
 export default function Root() {
   const location = useLocation();
   const { mode, isCloudAuthenticated } = useOnboarding();
+  const layoutV1Enabled = resolveLayoutV1Flag();
   const isTeamView = location.pathname === '/team';
   const isCompactRoute = location.pathname === '/compact';
-  const isDesktopMode = isDesktopShell();
-  const isElectronRuntime =
-    typeof navigator !== 'undefined' &&
-    typeof navigator.userAgent === 'string' &&
-    navigator.userAgent.includes('Electron');
-  const shouldScaleUi = !isCompactRoute && !isDesktopMode && !isElectronRuntime;
   const returnTo = `${location.pathname}${location.search}`;
 
   if (mode !== 'local' && mode !== 'cloud') {
@@ -55,6 +56,8 @@ export default function Root() {
                 <NotificationSettingsProvider>
                   <TaskHotkeys />
                   <CompactModeHotkeys />
+                  <PlannerAutoStartEngine />
+                  <ExecutionTelemetryBridge plannerMode={plannerMode} />
                   <CloudSessionRuntimeGuard plannerMode={plannerMode} />
                   <CloudSyncErrorToasts />
                   <DevDemoDataButton plannerMode={plannerMode} isCompactRoute={isCompactRoute} />
@@ -62,63 +65,13 @@ export default function Root() {
                     plannerMode={plannerMode}
                     isCompactRoute={isCompactRoute}
                   />
-                  <div
-                    data-testid="app-shell"
-                    className="relative flex h-full min-h-screen min-h-[100dvh] flex-col bg-background"
+                  <AppShellContainer
+                    isCompactRoute={isCompactRoute}
+                    isTeamView={isTeamView}
+                    layoutV1Enabled={layoutV1Enabled}
                   >
-                    <div className="flex min-h-0 flex-1 flex-col">
-                      <div className={shouldScaleUi ? 'app-scale' : 'h-full'}>
-                        <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--board-bg)] text-[var(--board-text)]">
-                          <main className="flex-1 min-h-0 overflow-hidden">
-                            <Outlet />
-                          </main>
-
-                          {!isCompactRoute && (
-                            <>
-                              <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 md:top-5">
-                                <CompactLauncher />
-                              </div>
-
-                              <div className="pointer-events-none absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
-                                <div className="ui-hud-shell pointer-events-auto flex items-center gap-2 rounded-[16px] p-2">
-                                  <Link to="/planner">
-                                    <Button
-                                      data-testid="nav-personal"
-                                      variant="ghost"
-                                      size="sm"
-                                      className={`h-10 gap-2 rounded-[11px] border px-4 ${
-                                        !isTeamView
-                                          ? 'ui-hud-btn-soft'
-                                          : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
-                                      }`}
-                                    >
-                                      <User className="size-4" />
-                                      Personal
-                                    </Button>
-                                  </Link>
-                                  <Link to="/team">
-                                    <Button
-                                      data-testid="nav-team"
-                                      variant="ghost"
-                                      size="sm"
-                                      className={`h-10 gap-2 rounded-[11px] border px-4 ${
-                                        isTeamView
-                                          ? 'ui-hud-btn-soft'
-                                          : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
-                                      }`}
-                                    >
-                                      <Users className="size-4" />
-                                      Team
-                                    </Button>
-                                  </Link>
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    <Outlet />
+                  </AppShellContainer>
                 </NotificationSettingsProvider>
               </CloudSyncProvider>
             </TaskProvider>
@@ -126,6 +79,79 @@ export default function Root() {
         </WorkdayProvider>
       </DndProvider>
     </UserPreferencesProvider>
+  );
+}
+
+function AppShellContainer({
+  children,
+  isCompactRoute,
+  isTeamView,
+  layoutV1Enabled,
+}: {
+  children: React.ReactNode;
+  isCompactRoute: boolean;
+  isTeamView: boolean;
+  layoutV1Enabled: boolean;
+}) {
+  const {
+    preferences: { uiDensity },
+  } = useUserPreferences();
+
+  return (
+    <div
+      data-testid="app-shell"
+      data-density={uiDensity}
+      className="relative flex h-screen h-[100dvh] min-h-0 flex-col overflow-hidden bg-background"
+    >
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--board-bg)] text-[var(--board-text)]">
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
+
+          {!isCompactRoute && !layoutV1Enabled && (
+            <>
+              <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 md:top-5">
+                <CompactLauncher />
+              </div>
+
+              <div className="pointer-events-none absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
+                <div className="ui-hud-shell pointer-events-auto flex items-center gap-2 ui-v1-radius-md p-2">
+                  <Link to="/planner">
+                    <Button
+                      data-testid="nav-personal"
+                      variant="ghost"
+                      size="sm"
+                      className={`h-10 gap-2 ui-v1-radius-sm border px-4 ${
+                        !isTeamView
+                          ? 'ui-hud-btn-soft'
+                          : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
+                      }`}
+                    >
+                      <User className="size-4" />
+                      Personal
+                    </Button>
+                  </Link>
+                  <Link to="/team">
+                    <Button
+                      data-testid="nav-team"
+                      variant="ghost"
+                      size="sm"
+                      className={`h-10 gap-2 ui-v1-radius-sm border px-4 ${
+                        isTeamView
+                          ? 'ui-hud-btn-soft'
+                          : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
+                      }`}
+                    >
+                      <Users className="size-4" />
+                      Team
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -153,7 +179,7 @@ function TaskHotkeys() {
   } = useCloudSync();
 
   useEffect(() => {
-    const handlePointerDown = (event: PointerEvent) => {
+    const handleClick = (event: MouseEvent) => {
       if (!(event.target instanceof HTMLElement)) return;
       const clickedTask = event.target.closest<HTMLElement>('[data-task-id]');
       if (clickedTask) {
@@ -181,8 +207,8 @@ function TaskHotkeys() {
       clearSelectedTask();
     };
 
-    window.addEventListener('pointerdown', handlePointerDown, true);
-    return () => window.removeEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('click', handleClick, true);
+    return () => window.removeEventListener('click', handleClick, true);
   }, [clearSelectedTask, setSelectedTaskId]);
 
   useEffect(() => {
@@ -373,14 +399,14 @@ function CompactLauncher() {
   };
 
   return (
-    <div className="pointer-events-auto rounded-[14px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
+    <div className="pointer-events-auto ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
       <Button
         type="button"
         variant="ghost"
         size="sm"
         data-testid="compact-launcher"
         onClick={openCompactRoute}
-        className="h-9 gap-2 rounded-[10px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-3 text-[12px] font-semibold text-[color:var(--hud-text)] hover:brightness-105"
+        className="h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-3 text-[12px] font-semibold text-[color:var(--hud-text)] hover:brightness-105"
       >
         <Minimize2 className="size-4" />
         Compact
@@ -396,6 +422,175 @@ function CloudSyncErrorToasts() {
     if (!error) return;
     toast.error(error);
   }, [error]);
+
+  return null;
+}
+
+function loadAutoStartSessionKeys(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(AUTO_START_SESSION_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((entry): entry is string => typeof entry === 'string'));
+  } catch {
+    return new Set();
+  }
+}
+
+function persistAutoStartSessionKeys(keys: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(AUTO_START_SESSION_STORAGE_KEY, JSON.stringify(Array.from(keys)));
+  } catch {
+    // Ignore sessionStorage failures.
+  }
+}
+
+function PlannerAutoStartEngine() {
+  const executionModeV1Enabled = resolveExecutionModeV1Flag();
+  const { tasks, startTask, pauseTask } = useTasks();
+  const {
+    preferences: { executionModeEnabled, autoStartTasksAtStartTime, autoSwitchActiveTask },
+  } = useUserPreferences();
+  const { canWriteTasks, isTaskConflictLocked, presenceLocks, user } = useCloudSync();
+  const startedKeysRef = useRef<Set<string>>(new Set());
+  const executionModeGateOpen = executionModeV1Enabled ? executionModeEnabled : true;
+
+  useEffect(() => {
+    startedKeysRef.current = loadAutoStartSessionKeys();
+  }, []);
+
+  useEffect(() => {
+    if (!executionModeGateOpen || !autoStartTasksAtStartTime || !canWriteTasks) {
+      return undefined;
+    }
+
+    const tick = () => {
+      const nowMs = Date.now();
+      const todayKey = getDayKey(new Date(nowMs));
+      const runningTasks = tasks.filter(
+        (task) =>
+          task.type !== 'block' &&
+          normalizeExecutionStatus(task) === 'running' &&
+          task.status !== 'inbox'
+      );
+
+      if (runningTasks.length > 0 && !autoSwitchActiveTask) {
+        return;
+      }
+
+      const eligibleTask = tasks
+        .filter((task) => {
+          if (task.type === 'block') return false;
+          if (!task.startDateTime || task.status === 'inbox') return false;
+          if (task.completed) return false;
+          if (normalizeExecutionStatus(task) === 'running') return false;
+          if (normalizeExecutionStatus(task) === 'completed') return false;
+          if (getDayKeyFromDateTime(task.startDateTime) !== todayKey) return false;
+          if (isTaskConflictLocked(task.id)) return false;
+
+          const lock = presenceLocks.find(
+            (presenceLock) => presenceLock.scope === 'task' && presenceLock.targetId === task.id
+          );
+          if (lock && lock.userId !== user?.id) return false;
+
+          const startMs = Date.parse(task.startDateTime);
+          if (!Number.isFinite(startMs)) return false;
+          const deltaMs = nowMs - startMs;
+          if (deltaMs < 0 || deltaMs > 60_000) return false;
+
+          if (task.lastStartAt) {
+            const lastStartMs = Date.parse(task.lastStartAt);
+            if (Number.isFinite(lastStartMs) && nowMs - lastStartMs < 5 * 60_000) {
+              return false;
+            }
+          }
+
+          const dedupeKey = `${task.id}:${task.startDateTime}`;
+          return !startedKeysRef.current.has(dedupeKey);
+        })
+        .sort((a, b) => {
+          const aStart = a.startDateTime ? Date.parse(a.startDateTime) : Number.MAX_SAFE_INTEGER;
+          const bStart = b.startDateTime ? Date.parse(b.startDateTime) : Number.MAX_SAFE_INTEGER;
+          return aStart - bStart;
+        })[0];
+
+      if (!eligibleTask) return;
+
+      if (autoSwitchActiveTask) {
+        runningTasks.forEach((task) => {
+          pauseTask(task.id);
+        });
+      }
+
+      startTask(eligibleTask.id);
+      const dedupeKey = `${eligibleTask.id}:${eligibleTask.startDateTime}`;
+      startedKeysRef.current.add(dedupeKey);
+      persistAutoStartSessionKeys(startedKeysRef.current);
+      toast.message(`Started: ${eligibleTask.title}`, {
+        action: {
+          label: 'Stop',
+          onClick: () => pauseTask(eligibleTask.id),
+        },
+      });
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 15_000);
+    return () => window.clearInterval(timer);
+  }, [
+    autoStartTasksAtStartTime,
+    autoSwitchActiveTask,
+    canWriteTasks,
+    executionModeGateOpen,
+    isTaskConflictLocked,
+    pauseTask,
+    presenceLocks,
+    startTask,
+    tasks,
+    user?.id,
+  ]);
+
+  return null;
+}
+
+function ExecutionTelemetryBridge({ plannerMode }: { plannerMode: PlannerMode }) {
+  const executionModeV1Enabled = resolveExecutionModeV1Flag();
+  const { token, activeOrgId } = useCloudSync();
+  const {
+    preferences: { executionModeEnabled, telemetryShareEnabled },
+  } = useUserPreferences();
+  const shouldFlushTelemetry = executionModeV1Enabled ? executionModeEnabled : false;
+
+  useEffect(() => {
+    if (!shouldFlushTelemetry) return undefined;
+
+    const flushNow = () => {
+      void flushExecutionTelemetry({
+        mode: plannerMode,
+        token,
+        orgId: activeOrgId,
+        telemetryShareEnabled,
+      });
+    };
+
+    flushNow();
+    const timer = window.setInterval(flushNow, 15_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushNow();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      flushNow();
+    };
+  }, [activeOrgId, plannerMode, shouldFlushTelemetry, telemetryShareEnabled, token]);
 
   return null;
 }
@@ -525,12 +720,12 @@ function DevDemoDataButton({
   };
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-30 md:right-5 md:top-5">
+    <div className="pointer-events-none absolute bottom-4 left-3 z-20 md:left-5">
       <Button
         type="button"
         data-testid="load-demo-data"
         onClick={onLoadDemoData}
-        className="pointer-events-auto ui-hud-btn h-8 rounded-[10px] px-3 text-[11px]"
+        className="pointer-events-auto ui-hud-btn h-8 ui-v1-radius-sm px-3 text-[11px]"
       >
         Load demo data
       </Button>

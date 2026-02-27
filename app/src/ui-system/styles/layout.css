@@ -1,0 +1,26 @@
+.ui-system-v1 .ui-v1-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-v1-gap, var(--ui-v1-space-4));
+}
+
+.ui-system-v1 .ui-v1-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-v1-gap, var(--ui-v1-space-3));
+}
+
+.ui-system-v1 .ui-v1-split {
+  display: grid;
+  grid-template-columns: var(--ui-v1-left-pane, minmax(320px, 420px)) minmax(0, 1fr);
+  gap: var(--ui-v1-space-6);
+  min-height: 0;
+}
+
+@media (max-width: 1024px) {
+  .ui-system-v1 .ui-v1-split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--ui-v1-space-4);
+  }
+}

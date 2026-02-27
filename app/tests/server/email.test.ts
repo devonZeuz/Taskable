@@ -12,7 +12,7 @@ describe('email delivery service', () => {
   beforeEach(() => {
     process.env.NODE_ENV = 'test';
     process.env.EMAIL_PROVIDER = 'test';
-    process.env.EMAIL_FROM = 'Taskable <no-reply@testable.local>';
+    process.env.EMAIL_FROM = 'Tareva <no-reply@testable.local>';
     process.env.APP_BASE_URL = 'http://localhost:5173';
     process.env.EMAIL_SANDBOX_MODE = 'false';
     process.env.EMAIL_TEST_LOG_PATH = '';
@@ -64,7 +64,7 @@ describe('email delivery service', () => {
     const config = emailModule.getEmailDeliveryConfig();
 
     expect(config.provider).toBe('test');
-    expect(config.from).toContain('Taskable');
+    expect(config.from).toContain('Tareva');
     expect(config.appBaseUrl).toBe('http://localhost:5173');
   });
 });

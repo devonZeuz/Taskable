@@ -42,6 +42,7 @@ interface NotificationSettingsContextType {
 }
 
 const STORAGE_KEY = 'taskable:notifications-enabled';
+const LEGACY_STORAGE_KEY = 'Tareva:notifications-enabled';
 const CHECK_INTERVAL_MS = 10_000;
 
 const NotificationSettingsContext = createContext<NotificationSettingsContextType | undefined>(
@@ -60,7 +61,11 @@ function isNotificationSupported(): boolean {
 
 function loadEnabledState(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'true';
+    const current = localStorage.getItem(STORAGE_KEY);
+    if (current !== null) {
+      return current === 'true';
+    }
+    return localStorage.getItem(LEGACY_STORAGE_KEY) === 'true';
   } catch {
     return false;
   }
@@ -158,6 +163,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, String(enabled));
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // ignore persistence errors
     }
@@ -290,7 +296,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
         const conflictToastId = `extend-conflict:${task.id}:${plan.nextDurationMinutes}`;
         toast.custom(
           (toastId) => (
-            <div className="ui-hud-shell w-[360px] rounded-[12px] p-3">
+            <div className="ui-hud-shell w-[360px] ui-v1-radius-sm p-3">
               <p className="text-sm font-semibold text-[color:var(--hud-text)]">
                 Extension conflict
               </p>
@@ -301,7 +307,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="ui-hud-btn-soft h-8 rounded-[9px] px-3 text-[11px] font-semibold"
+                  className="ui-hud-btn-soft h-8 ui-v1-radius-sm px-3 text-[11px] font-semibold"
                   onClick={() => {
                     if (!ensureConflictUnlocked(task.id, 'Extend to now')) {
                       toast.dismiss(toastId);
@@ -320,7 +326,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
                 </button>
                 <button
                   type="button"
-                  className="ui-hud-btn h-8 rounded-[9px] px-3 text-[11px] font-semibold opacity-85"
+                  className="ui-hud-btn h-8 ui-v1-radius-sm px-3 text-[11px] font-semibold opacity-85"
                   onClick={() => {
                     toast.dismiss(toastId);
                   }}
@@ -365,7 +371,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
     if (!isNotificationSupported() || permission !== 'granted') {
       if (!fallbackNoticeShownRef.current) {
         toast.message('Browser notifications are unavailable.', {
-          description: 'Taskable will use in-app reminders while this tab is active.',
+          description: 'Tareva will use in-app reminders while this tab is active.',
         });
         fallbackNoticeShownRef.current = true;
       }
@@ -668,7 +674,7 @@ function EndPromptHud({
   return (
     <div className="pointer-events-none fixed inset-0 z-[45]">
       <div
-        className="pointer-events-auto absolute w-[264px] rounded-[14px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2 shadow-[0_18px_36px_rgba(0,0,0,0.38)] backdrop-blur-md"
+        className="pointer-events-auto absolute w-[264px] ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2 ui-v1-elevation-3 backdrop-blur-md"
         style={{ top: `${Math.round(position.top)}px`, left: `${Math.round(position.left)}px` }}
       >
         <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -686,7 +692,7 @@ function EndPromptHud({
                 <button
                   type="button"
                   onClick={onPrev}
-                  className="flex h-6.5 w-6.5 items-center justify-center rounded-[8px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-80 transition-colors hover:brightness-105 hover:opacity-100"
+                  className="flex h-6.5 w-6.5 items-center justify-center ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-80 transition-colors hover:brightness-105 hover:opacity-100"
                   title="Previous prompt"
                 >
                   <ChevronLeft className="size-3.5" />
@@ -697,7 +703,7 @@ function EndPromptHud({
                 <button
                   type="button"
                   onClick={onNext}
-                  className="flex h-6.5 w-6.5 items-center justify-center rounded-[8px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-80 transition-colors hover:brightness-105 hover:opacity-100"
+                  className="flex h-6.5 w-6.5 items-center justify-center ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-80 transition-colors hover:brightness-105 hover:opacity-100"
                   title="Next prompt"
                 >
                   <ChevronRight className="size-3.5" />
@@ -707,7 +713,7 @@ function EndPromptHud({
             <button
               type="button"
               onClick={() => onDismiss(activePrompt.key)}
-              className="flex h-6.5 w-6.5 items-center justify-center rounded-[8px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-80 transition-colors hover:brightness-105 hover:opacity-100"
+              className="flex h-6.5 w-6.5 items-center justify-center ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-80 transition-colors hover:brightness-105 hover:opacity-100"
               title="Dismiss prompt"
             >
               <X className="size-3.5" />
@@ -719,28 +725,28 @@ function EndPromptHud({
           <button
             type="button"
             onClick={() => onMarkDone(activePrompt)}
-            className="inline-flex h-8 min-w-0 items-center justify-center rounded-[9px] border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-2 text-[10.5px] font-semibold text-[var(--hud-accent-soft-text)]"
+            className="inline-flex h-8 min-w-0 items-center justify-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-2 text-[10.5px] font-semibold text-[var(--hud-accent-soft-text)]"
           >
             Mark done
           </button>
           <button
             type="button"
             onClick={() => onKeepRunning(activePrompt)}
-            className="inline-flex h-8 min-w-0 items-center justify-center rounded-[9px] border border-[color:var(--hud-border)] bg-transparent px-2 text-[10.5px] font-semibold text-[color:var(--hud-text)] opacity-90"
+            className="inline-flex h-8 min-w-0 items-center justify-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-transparent px-2 text-[10.5px] font-semibold text-[color:var(--hud-text)] opacity-90"
           >
             Keep running
           </button>
           <button
             type="button"
             onClick={() => onExtendToNow(activePrompt)}
-            className="inline-flex h-8 min-w-0 items-center justify-center rounded-[9px] border border-[color:var(--hud-border)] bg-transparent px-2 text-[10.5px] font-semibold text-[color:var(--hud-text)] opacity-90"
+            className="inline-flex h-8 min-w-0 items-center justify-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-transparent px-2 text-[10.5px] font-semibold text-[color:var(--hud-text)] opacity-90"
           >
             Extend to now
           </button>
           <button
             type="button"
             onClick={() => onRescheduleRemaining(activePrompt)}
-            className="inline-flex h-8 min-w-0 items-center justify-center rounded-[9px] border border-[color:var(--hud-border)] bg-transparent px-2 text-[10.5px] font-semibold text-[color:var(--hud-text)] opacity-90"
+            className="inline-flex h-8 min-w-0 items-center justify-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-transparent px-2 text-[10.5px] font-semibold text-[color:var(--hud-text)] opacity-90"
           >
             Reschedule
           </button>

@@ -79,11 +79,11 @@ export default function NotificationSettings() {
 
   return (
     <div className="space-y-5">
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Browser Alerts
         </p>
-        <div className="ui-hud-row mt-3 flex items-center justify-between rounded-[10px] px-3 py-2.5">
+        <div className="ui-hud-row mt-3 flex items-center justify-between ui-v1-radius-sm px-3 py-2.5">
           <div>
             <p className="text-sm font-semibold text-[color:var(--hud-text)]">Enable reminders</p>
             <p className="text-[11px] text-[color:var(--hud-muted)]">
@@ -100,7 +100,7 @@ export default function NotificationSettings() {
               Incoming lead times
             </p>
             <p className="text-[11px] text-[color:var(--hud-muted)]">
-              Choose when Taskable reminds you before a task starts.
+              Choose when Tareva reminds you before a task starts.
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {LEAD_OPTIONS.map((minutes) => {
@@ -109,7 +109,7 @@ export default function NotificationSettings() {
                   <button
                     key={minutes}
                     type="button"
-                    className={`h-8 rounded-[9px] border px-3 text-[11px] font-semibold ${
+                    className={`h-8 ui-v1-radius-sm border px-3 text-[11px] font-semibold ${
                       active
                         ? 'ui-hud-btn-soft'
                         : 'ui-hud-btn bg-[var(--hud-surface-strong)] opacity-85'
@@ -142,11 +142,11 @@ export default function NotificationSettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Execution Prompts
         </p>
-        <div className="ui-hud-row mt-3 flex items-center justify-between rounded-[10px] px-3 py-2.5">
+        <div className="ui-hud-row mt-3 flex items-center justify-between ui-v1-radius-sm px-3 py-2.5">
           <div>
             <p className="text-sm font-semibold text-[color:var(--hud-text)]">End-of-task prompt</p>
             <p className="text-[11px] text-[color:var(--hud-muted)]">
@@ -168,7 +168,7 @@ export default function NotificationSettings() {
                 <button
                   key={minutes}
                   type="button"
-                  className={`h-8 rounded-[9px] border px-3 text-[11px] font-semibold ${
+                  className={`h-8 ui-v1-radius-sm border px-3 text-[11px] font-semibold ${
                     active
                       ? 'ui-hud-btn-soft'
                       : 'ui-hud-btn bg-[var(--hud-surface-strong)] opacity-85'
@@ -183,7 +183,7 @@ export default function NotificationSettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Reminder Types
         </p>

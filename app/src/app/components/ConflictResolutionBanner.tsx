@@ -12,7 +12,7 @@ export default function ConflictResolutionBanner() {
 
   return (
     <div className="px-3 pb-2 md:px-5" data-testid="conflict-lock-banner">
-      <div className="ui-alert-block flex items-center justify-between gap-3 rounded-[12px] px-3 py-2.5">
+      <div className="ui-alert-block flex items-center justify-between gap-3 ui-v1-radius-sm px-3 py-2.5">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-[12px] font-semibold">
             <AlertTriangle className="size-4 shrink-0" />
@@ -28,7 +28,7 @@ export default function ConflictResolutionBanner() {
         <Button
           type="button"
           size="sm"
-          className="h-8 shrink-0 rounded-[9px] px-3 text-[11px] font-semibold"
+          className="h-8 shrink-0 ui-v1-radius-sm px-3 text-[11px] font-semibold"
           onClick={() => openConflictResolver(primaryConflict.taskId)}
         >
           Resolve

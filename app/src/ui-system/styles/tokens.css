@@ -1,0 +1,92 @@
+.ui-system-v1 {
+  --ui-font-scale: 1;
+  --ui-space-scale: 1;
+  --ui-control-scale: 1;
+
+  --ui-v1-space-0: 0px;
+  --ui-v1-space-1: calc(4px * var(--ui-space-scale));
+  --ui-v1-space-2: calc(8px * var(--ui-space-scale));
+  --ui-v1-space-3: calc(12px * var(--ui-space-scale));
+  --ui-v1-space-4: calc(16px * var(--ui-space-scale));
+  --ui-v1-space-5: calc(20px * var(--ui-space-scale));
+  --ui-v1-space-6: calc(24px * var(--ui-space-scale));
+  --ui-v1-space-7: calc(28px * var(--ui-space-scale));
+  --ui-v1-space-8: calc(32px * var(--ui-space-scale));
+  --ui-v1-space-9: calc(40px * var(--ui-space-scale));
+  --ui-v1-space-10: calc(48px * var(--ui-space-scale));
+
+  --ui-v1-font-family: 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --ui-v1-font-xs: calc(11px * var(--ui-font-scale));
+  --ui-v1-font-sm: calc(12px * var(--ui-font-scale));
+  --ui-v1-font-md: calc(14px * var(--ui-font-scale));
+  --ui-v1-font-lg: calc(16px * var(--ui-font-scale));
+  --ui-v1-font-xl: calc(20px * var(--ui-font-scale));
+  --ui-v1-font-display: calc(48px * var(--ui-font-scale));
+  --ui-v1-line-tight: 1.05;
+  --ui-v1-line-compact: 1.2;
+  --ui-v1-line-normal: 1.4;
+  --ui-v1-line-relaxed: 1.55;
+  --ui-v1-weight-regular: 400;
+  --ui-v1-weight-medium: 500;
+  --ui-v1-weight-semibold: 600;
+  --ui-v1-weight-bold: 700;
+  --ui-v1-track-tight: -0.03em;
+  --ui-v1-track-normal: -0.01em;
+  --ui-v1-track-wide: 0.06em;
+
+  --ui-v1-radius-xs: 8px;
+  --ui-v1-radius-sm: 10px;
+  --ui-v1-radius-md: 14px;
+  --ui-v1-radius-lg: 18px;
+  --ui-v1-radius-xl: 24px;
+  --ui-v1-planner-header-offset: 86px;
+  --ui-v1-control-h-sm: calc(28px * var(--ui-control-scale));
+  --ui-v1-control-h-md: calc(32px * var(--ui-control-scale));
+  --ui-v1-control-h-lg: calc(36px * var(--ui-control-scale));
+  --ui-v1-border-width: 1px;
+  --ui-v1-elevation-0: none;
+  --ui-v1-elevation-1: 0 6px 14px rgba(0, 0, 0, 0.18);
+  --ui-v1-elevation-2: 0 10px 24px rgba(0, 0, 0, 0.24);
+  --ui-v1-elevation-3: 0 16px 34px rgba(0, 0, 0, 0.3);
+
+  --ui-v1-surface-1: var(--hud-surface);
+  --ui-v1-surface-2: var(--hud-surface-soft);
+  --ui-v1-surface-3: var(--hud-surface-strong);
+  --ui-v1-surface-border: var(--hud-border);
+  --ui-v1-surface-text: var(--hud-text);
+  --ui-v1-surface-muted: var(--hud-muted);
+
+  --ui-v1-compact-space-xxs: 2px;
+  --ui-v1-compact-space-xs: 6px;
+  --ui-v1-compact-space-sm: 10px;
+  --ui-v1-compact-space-md: 12px;
+  --ui-v1-compact-space-lg: 16px;
+  --ui-v1-compact-title-size: 19px;
+  --ui-v1-compact-subtitle-size: 10px;
+  --ui-v1-compact-task-title-size: 12px;
+  --ui-v1-compact-task-meta-size: 10px;
+}
+
+.ui-system-v1 .compact-token-layout {
+  font-family: var(--ui-v1-font-family);
+}
+
+.ui-system-v1 .compact-token-day-label {
+  padding: var(--ui-v1-compact-space-sm) var(--ui-v1-compact-space-sm);
+}
+
+.ui-system-v1 .compact-token-day-title {
+  font-size: var(--ui-v1-compact-title-size);
+  letter-spacing: var(--ui-v1-track-tight);
+}
+
+.ui-system-v1 .compact-token-day-subtitle {
+  font-size: var(--ui-v1-compact-subtitle-size);
+  letter-spacing: var(--ui-v1-track-wide);
+}
+
+.ui-system-v1 .compact-token-task-card {
+  border-radius: 12px;
+  padding: var(--ui-v1-compact-space-sm);
+  box-shadow: var(--ui-v1-elevation-3);
+}

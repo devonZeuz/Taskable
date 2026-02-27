@@ -210,7 +210,7 @@ export default function DataBackupSettings() {
 
   return (
     <div className="space-y-4">
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Local Backup
         </p>
@@ -250,7 +250,7 @@ export default function DataBackupSettings() {
         />
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Workspace Data
         </p>

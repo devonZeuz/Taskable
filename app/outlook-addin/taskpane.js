@@ -1,16 +1,16 @@
 /* global window, document, fetch */
 
 const STORAGE_KEYS = {
-  apiBase: 'taskable:outlook:api-base',
-  email: 'taskable:outlook:email',
-  orgId: 'taskable:outlook:org-id',
-  accessToken: 'taskable:outlook:access-token',
-  refreshToken: 'taskable:outlook:refresh-token',
-  userName: 'taskable:outlook:user-name',
-  userEmail: 'taskable:outlook:user-email',
-  msalClientId: 'taskable:outlook:msal-client-id',
-  msalTenantId: 'taskable:outlook:msal-tenant-id',
-  msalScope: 'taskable:outlook:msal-scope',
+  apiBase: 'Tareva:outlook:api-base',
+  email: 'Tareva:outlook:email',
+  orgId: 'Tareva:outlook:org-id',
+  accessToken: 'Tareva:outlook:access-token',
+  refreshToken: 'Tareva:outlook:refresh-token',
+  userName: 'Tareva:outlook:user-name',
+  userEmail: 'Tareva:outlook:user-email',
+  msalClientId: 'Tareva:outlook:msal-client-id',
+  msalTenantId: 'Tareva:outlook:msal-tenant-id',
+  msalScope: 'Tareva:outlook:msal-scope',
 };
 
 let msalClient = null;
@@ -215,7 +215,7 @@ function mapSsoError(error) {
     return 'Your mailbox host does not support this SSO flow.';
   }
   if (code === 'SSO_NOT_CONFIGURED') {
-    return 'Taskable server SSO is not configured yet.';
+    return 'Tareva server SSO is not configured yet.';
   }
   if (code === 'TENANT_NOT_ALLOWED') {
     return 'Your Microsoft tenant is not allowed for this workspace.';
@@ -348,7 +348,7 @@ async function apiRequest(
   if (includeAuth) {
     const accessToken = getStoredAccessToken();
     if (!accessToken) {
-      throw new Error('Please sign in to Taskable first.');
+      throw new Error('Please sign in to Tareva first.');
     }
     headers.Authorization = `Bearer ${accessToken}`;
   }
@@ -749,7 +749,7 @@ window.Office.onReady(() => {
         updateSessionLabel();
         applyOrgsToSelect([]);
         setAuthenticatedUi(false);
-        setStatus('Please sign in to Taskable.', true);
+        setStatus('Please sign in to Tareva.', true);
       });
   } else {
     applyOrgsToSelect([]);

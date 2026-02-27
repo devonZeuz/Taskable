@@ -1,6 +1,6 @@
 # Outlook Add-in Scaffold
 
-This folder contains a minimal Outlook add-in scaffold that captures the selected email into Taskable inbox via:
+This folder contains a minimal Outlook add-in scaffold that captures the selected email into Tareva inbox via:
 
 - `POST /api/orgs/:orgId/inbox-from-email`
 
@@ -53,7 +53,7 @@ This folder contains a minimal Outlook add-in scaffold that captures the selecte
 
 ### Admin consent flow (tenant)
 
-1. Register/verify Entra app registration for Taskable API audience.
+1. Register/verify Entra app registration for Tareva API audience.
 2. Configure redirect URI(s) used by taskpane MSAL popup flow.
 3. Grant admin consent for required delegated scopes in tenant.
 4. Sideload manifest to pilot users, then deploy centrally.

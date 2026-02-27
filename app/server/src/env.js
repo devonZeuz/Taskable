@@ -15,6 +15,14 @@ function normalizeEnvValue(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function parseOptionalBoolean(value) {
+  const normalized = normalizeEnvValue(value).toLowerCase();
+  if (!normalized) return null;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return null;
+}
+
 export function isWeakJwtSecret(secret) {
   const normalized = normalizeEnvValue(secret);
   if (!normalized) return true;
@@ -39,6 +47,13 @@ export function validateServerEnv(env = process.env) {
   const accessTokenTtl = normalizeEnvValue(env.ACCESS_TOKEN_TTL) || '7d';
   const allowQueryTokenAuth =
     !isProduction && normalizeEnvValue(env.ALLOW_QUERY_TOKEN_AUTH) === 'true';
+  const adminApiOverride = parseOptionalBoolean(env.ENABLE_ADMIN_API);
+  if (normalizeEnvValue(env.ENABLE_ADMIN_API) && adminApiOverride === null) {
+    throw new Error(
+      'ENV_VALIDATION_ERROR: ENABLE_ADMIN_API must be a boolean-like value (true/false, 1/0, on/off).'
+    );
+  }
+  const enableAdminApi = adminApiOverride ?? !isProduction;
 
   return {
     nodeEnv,
@@ -46,6 +61,7 @@ export function validateServerEnv(env = process.env) {
     jwtSecret,
     accessTokenTtl,
     allowQueryTokenAuth,
+    enableAdminApi,
   };
 }
 

@@ -134,7 +134,7 @@ export default function TeamPermissionsSettings() {
 
   return (
     <div className="space-y-4">
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Team Directory
         </p>
@@ -162,7 +162,7 @@ export default function TeamPermissionsSettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Members & Roles
         </p>
@@ -176,7 +176,7 @@ export default function TeamPermissionsSettings() {
             return (
               <div
                 key={member.id}
-                className="flex flex-wrap items-center justify-between gap-2 ui-hud-row rounded-[10px] px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2 ui-hud-row ui-v1-radius-sm px-3 py-2"
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
@@ -232,7 +232,7 @@ export default function TeamPermissionsSettings() {
       </section>
 
       {!isCloudMode && hiddenDefaultMembers.length > 0 && (
-        <section className="ui-hud-section rounded-[14px] p-4">
+        <section className="ui-hud-section ui-v1-radius-md p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
             Removed Built-in Members
           </p>

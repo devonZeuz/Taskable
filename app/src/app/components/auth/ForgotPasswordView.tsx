@@ -34,7 +34,7 @@ export default function ForgotPasswordView() {
       title="Reset your password"
       description="Request a reset token. Then use the reset page to set a new password."
       heroLead="Recovery for"
-      heroTitle="Taskable"
+      heroTitle="Tareva"
       heroSubtitle="Use the reset flow to recover access without losing planner data or workspace history."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-forgot-form">

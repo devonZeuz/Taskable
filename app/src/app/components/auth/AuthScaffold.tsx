@@ -12,13 +12,13 @@ interface AuthScaffoldProps {
 }
 
 export default function AuthScaffold({
-  eyebrow = 'Taskable',
+  eyebrow = 'Tareva',
   title,
   description,
   children,
   footer,
   heroLead = 'Welcome to',
-  heroTitle = 'Taskable',
+  heroTitle = 'Tareva',
   heroSubtitle = 'Plan your day with clear priorities. Use local mode for private planning or cloud mode for team sync.',
 }: AuthScaffoldProps) {
   return (
@@ -39,7 +39,7 @@ export default function AuthScaffold({
       <div className="relative mx-auto flex w-full max-w-[1440px] flex-1 flex-col px-4 py-6 md:px-8 md:py-10 lg:px-12">
         <section className="grid flex-1 items-center gap-10 lg:grid-cols-[minmax(360px,480px)_1fr]">
           <div className="relative z-20">
-            <div className="ui-hud-shell w-full rounded-[28px] p-6 md:p-8">
+            <div className="ui-hud-shell w-full ui-v1-radius-xl p-6 md:p-8">
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--hud-muted)]">
                   {eyebrow}

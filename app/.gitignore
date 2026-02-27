@@ -20,3 +20,7 @@ test-results/
 *.sqlite
 *.db
 *.local
+artifacts/
+desktop/CODE_SIGNING.md
+AUDIT.md
+*inspo*.png

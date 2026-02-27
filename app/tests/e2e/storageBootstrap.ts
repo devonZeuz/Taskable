@@ -3,17 +3,19 @@ import type { Page } from '@playwright/test';
 interface LocalBootstrapOptions {
   seedDemoTasks?: boolean;
   clearStorage?: boolean;
+  uiDensity?: 'comfortable' | 'compact';
 }
 
 export async function bootstrapLocalMode(page: Page, options: LocalBootstrapOptions = {}) {
-  const { seedDemoTasks = false, clearStorage = true } = options;
+  const { seedDemoTasks = false, clearStorage = true, uiDensity = 'comfortable' } = options;
   await page.addInitScript(
-    ({ seed, clear }) => {
+    ({ seed, clear, density }) => {
       if (clear) {
         window.localStorage.clear();
       }
       window.localStorage.setItem('taskable:mode', 'local');
       window.localStorage.setItem('taskable:tutorial:local-completed', 'true');
+      window.localStorage.setItem('taskable:ui-density:local', density);
 
       if (!seed) return;
 
@@ -93,6 +95,6 @@ export async function bootstrapLocalMode(page: Page, options: LocalBootstrapOpti
         })
       );
     },
-    { seed: seedDemoTasks, clear: clearStorage }
+    { seed: seedDemoTasks, clear: clearStorage, density: uiDensity }
   );
 }

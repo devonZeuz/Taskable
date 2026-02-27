@@ -1,6 +1,6 @@
 # Desktop Security Checklist
 
-Taskable desktop security posture (Electron shell):
+Tareva desktop security posture (Electron shell):
 
 - `contextIsolation: true` on all BrowserWindows.
 - `nodeIntegration: false` on all BrowserWindows.
@@ -12,7 +12,7 @@ Taskable desktop security posture (Electron shell):
   - `will-navigate` denies URLs outside the renderer origin.
   - `setWindowOpenHandler` is deny-by-default.
   - `will-attach-webview` is blocked.
-- Protocol deep links are handled in the main process only (`taskable://task/<taskId>`).
+- Protocol deep links are handled in the main process only (`Tareva://task/<taskId>`).
 
 Operational notes:
 

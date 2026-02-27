@@ -24,7 +24,7 @@ test('continue locally enters planner with empty state and one-time tutorial', a
     });
   });
 
-  await page.goto('/');
+  await page.goto('/welcome');
   await page.getByTestId('welcome-continue-local').click();
 
   await expect(page).toHaveURL(/\/planner$/);
@@ -138,10 +138,34 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
     });
   });
 
+  await page.route('**/api/orgs/org_test/stream-token*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ token: 'stream_token_test' }),
+    });
+  });
+
+  await page.route('**/api/orgs/org_test/stream*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: '',
+    });
+  });
+
+  await page.route('**/api/ops/events', async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+
   await page.goto('/signup');
   await page.locator('#signup-name').fill('Tutorial User');
   await page.locator('#signup-email').fill('tutorial@example.com');
-  await page.locator('#signup-password').fill('TaskableE2E#123');
+  await page.locator('#signup-password').fill('TarevaE2E#123');
   await page.getByRole('button', { name: 'Create account' }).click();
 
   await expect(page).toHaveURL(/\/planner$/);
@@ -228,9 +252,33 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
     });
   });
 
+  await page.route('**/api/orgs/org_test_login/stream-token*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ token: 'stream_token_test' }),
+    });
+  });
+
+  await page.route('**/api/orgs/org_test_login/stream*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: '',
+    });
+  });
+
+  await page.route('**/api/ops/events', async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+
   await page.goto('/login');
   await page.locator('#login-email').fill('login@example.com');
-  await page.locator('#login-password').fill('TaskableE2E#123');
+  await page.locator('#login-password').fill('TarevaE2E#123');
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(page).toHaveURL(/\/planner$/);

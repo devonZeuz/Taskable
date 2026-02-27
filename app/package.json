@@ -1,5 +1,5 @@
 {
-  "name": "taskable-app",
+  "name": "tareva-app",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -17,6 +17,7 @@
     "server:start": "npm --prefix server run start",
     "build": "vite build",
     "perf:check": "node scripts/check-bundle-size.mjs",
+    "ui:audit": "node scripts/ui-system-audit.mjs",
     "dev": "vite",
     "start": "vite preview",
     "dev:lan": "vite --host 0.0.0.0 --port 5173",

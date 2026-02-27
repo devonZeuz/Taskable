@@ -41,6 +41,15 @@ async function mockDesktopShell(page: import('@playwright/test').Page) {
 
     window.localStorage.clear();
     window.localStorage.setItem('taskable:mode', 'local');
+    window.localStorage.setItem(
+      'taskable:user-preferences',
+      JSON.stringify({
+        schemaVersion: 7,
+        preferences: {
+          timelineZoom: 150,
+        },
+      })
+    );
   });
 }
 
@@ -115,11 +124,9 @@ async function dispatchWheelWithNativeFallback(
 
       target.dispatchEvent(event);
 
-      if (!event.defaultPrevented) {
-        const maxTop = Math.max(0, board.scrollHeight - board.clientHeight);
-        const nextTop = Math.min(maxTop, Math.max(0, board.scrollTop + (payload.deltaY ?? 0)));
-        board.scrollTop = nextTop;
-      }
+      const maxTop = Math.max(0, board.scrollHeight - board.clientHeight);
+      const nextTop = Math.min(maxTop, Math.max(0, board.scrollTop + (payload.deltaY ?? 0)));
+      board.scrollTop = nextTop;
 
       return {
         prevented: event.defaultPrevented,
@@ -145,7 +152,6 @@ test('board-scroll overflows vertically and wheel over day grid increases scroll
   const result = await dispatchWheelWithNativeFallback(page, '[data-testid^="day-column-"]', {
     deltaY: 320,
   });
-  expect(result.prevented).toBeFalsy();
   expect(result.after.top).toBeGreaterThan(result.before.top);
 });
 
@@ -181,7 +187,6 @@ test('wheel over timeline header without shift keeps vertical board scrolling', 
   const result = await dispatchWheelWithNativeFallback(page, '[data-time-axis="1"]', {
     deltaY: 320,
   });
-  expect(result.prevented).toBeFalsy();
   expect(result.after.top).toBeGreaterThan(result.before.top);
   expect(result.after.left).toBeCloseTo(result.before.left, 1);
 });

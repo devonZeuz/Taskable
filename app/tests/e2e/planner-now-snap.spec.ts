@@ -28,12 +28,32 @@ async function bootstrapDeterministicDnd(page: import('@playwright/test').Page) 
   await bootstrapLocalMode(page, { seedDemoTasks: true });
   await page.addInitScript(() => {
     window.localStorage.setItem('taskable:e2e-dnd', 'true');
+    window.localStorage.setItem(
+      'taskable:user-preferences',
+      JSON.stringify({
+        schemaVersion: 7,
+        preferences: {
+          timelineZoom: 150,
+        },
+      })
+    );
   });
 }
 
 test('planner soft-snaps timeline to current time on initial load', async ({ page }) => {
   await installFixedDate(page, '2026-02-21T13:30:00');
   await bootstrapLocalMode(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'taskable:user-preferences',
+      JSON.stringify({
+        schemaVersion: 7,
+        preferences: {
+          timelineZoom: 150,
+        },
+      })
+    );
+  });
   await page.goto('/planner');
 
   await expect(page.locator('.board-scroll')).toBeVisible();
@@ -112,6 +132,6 @@ test('day labels stay pinned while timeline scrolls horizontally and tasks remai
 
   expect(moved).toBe(true);
   await expect(page.locator('[data-task-title="Germany Invoices"]').first()).toContainText(
-    '11:00-12:00'
+    /11:00\s*-\s*12:00/
   );
 });

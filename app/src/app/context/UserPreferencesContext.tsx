@@ -1,10 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useOnboarding } from './OnboardingContext';
 
 export type WeekStartDay = 'sunday' | 'monday';
 export type TimeFormat = '24h' | '12h';
 export type SlotSizeMinutes = 15 | 30 | 60;
 export type NotificationLeadMinutes = 5 | 10 | 15 | 30;
 export type CompactDaysShown = 3 | 5 | 7;
+export type TimelineZoomLevel = 50 | 75 | 100 | 125 | 150;
+export type UiDensity = 'comfortable' | 'compact';
 
 export interface CompactWindowBounds {
   width: number;
@@ -22,8 +25,16 @@ export interface UserPreferences {
   reduceMotion: boolean;
   defaultTaskDurationMinutes: number;
   autoPlaceOnConflict: boolean;
+  executionModeEnabled: boolean;
+  telemetryShareEnabled: boolean;
+  autoStartTasksAtStartTime: boolean;
+  autoSwitchActiveTask: boolean;
   hideUnassignedInPersonal: boolean;
   recallDays: number;
+  timelineZoom: TimelineZoomLevel;
+  uiDensity: UiDensity;
+  sidebarCollapsed: boolean;
+  sidebarCollapsePreferenceSet: boolean;
   notificationLeadTimes: NotificationLeadMinutes[];
   endPromptEnabled: boolean;
   followUpOverrunIntervals: NotificationLeadMinutes[];
@@ -49,13 +60,107 @@ interface StoredPreferencesPayload {
 }
 
 const STORAGE_KEY = 'taskable:user-preferences';
-const STORAGE_SCHEMA_VERSION = 5;
+const STORAGE_SCHEMA_VERSION = 9;
+const EXECUTION_MODE_LOCAL_STORAGE_KEY = 'taskable:execution-mode:local';
+const EXECUTION_MODE_CLOUD_STORAGE_PREFIX = 'taskable:execution-mode:cloud:';
+const TELEMETRY_SHARE_LOCAL_STORAGE_KEY = 'taskable:telemetry-share:local';
+const TELEMETRY_SHARE_CLOUD_STORAGE_PREFIX = 'taskable:telemetry-share:cloud:';
+const SIDEBAR_COLLAPSED_LOCAL_STORAGE_KEY = 'taskable:layoutV1:sidebarCollapsed';
+const SIDEBAR_COLLAPSED_CLOUD_STORAGE_PREFIX = 'taskable:layoutV1:sidebarCollapsed:cloud:';
+const UI_DENSITY_LOCAL_STORAGE_KEY = 'taskable:ui-density:local';
+const UI_DENSITY_CLOUD_STORAGE_PREFIX = 'taskable:ui-density:cloud:';
 
 function getLocalTimeZone() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';
   } catch {
     return 'UTC';
+  }
+}
+
+function getScopedStorageKey(
+  mode: 'local' | 'cloud' | null,
+  cloudUserId: string | null,
+  localKey: string,
+  cloudPrefix: string
+): string | null {
+  if (mode === 'local') return localKey;
+  if (mode === 'cloud' && typeof cloudUserId === 'string' && cloudUserId.length > 0) {
+    return `${cloudPrefix}${cloudUserId}`;
+  }
+  return null;
+}
+
+function readScopedBoolean(
+  mode: 'local' | 'cloud' | null,
+  cloudUserId: string | null,
+  localKey: string,
+  cloudPrefix: string
+): boolean | null {
+  if (typeof window === 'undefined') return null;
+  const storageKey = getScopedStorageKey(mode, cloudUserId, localKey, cloudPrefix);
+  if (!storageKey) return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeScopedBoolean(
+  mode: 'local' | 'cloud' | null,
+  cloudUserId: string | null,
+  localKey: string,
+  cloudPrefix: string,
+  value: boolean
+) {
+  if (typeof window === 'undefined') return;
+  const storageKey = getScopedStorageKey(mode, cloudUserId, localKey, cloudPrefix);
+  if (!storageKey) return;
+  try {
+    window.localStorage.setItem(storageKey, value ? 'true' : 'false');
+  } catch {
+    // Ignore storage write errors.
+  }
+}
+
+function readScopedUiDensity(
+  mode: 'local' | 'cloud' | null,
+  cloudUserId: string | null,
+  localKey: string,
+  cloudPrefix: string
+): UiDensity | null {
+  if (typeof window === 'undefined') return null;
+  const storageKey = getScopedStorageKey(mode, cloudUserId, localKey, cloudPrefix);
+  if (!storageKey) return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === 'comfortable' || raw === 'compact') {
+      return raw;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeScopedUiDensity(
+  mode: 'local' | 'cloud' | null,
+  cloudUserId: string | null,
+  localKey: string,
+  cloudPrefix: string,
+  value: UiDensity
+) {
+  if (typeof window === 'undefined') return;
+  const storageKey = getScopedStorageKey(mode, cloudUserId, localKey, cloudPrefix);
+  if (!storageKey) return;
+  try {
+    window.localStorage.setItem(storageKey, value);
+  } catch {
+    // Ignore storage write errors.
   }
 }
 
@@ -68,8 +173,16 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   reduceMotion: false,
   defaultTaskDurationMinutes: 60,
   autoPlaceOnConflict: false,
+  executionModeEnabled: false,
+  telemetryShareEnabled: true,
+  autoStartTasksAtStartTime: false,
+  autoSwitchActiveTask: false,
   hideUnassignedInPersonal: false,
   recallDays: 3,
+  timelineZoom: 100,
+  uiDensity: 'comfortable',
+  sidebarCollapsed: false,
+  sidebarCollapsePreferenceSet: false,
   notificationLeadTimes: [15, 10, 5],
   endPromptEnabled: true,
   followUpOverrunIntervals: [5, 10, 15],
@@ -203,6 +316,22 @@ function normalizePreferences(input: Partial<UserPreferences> | null | undefined
       typeof input.autoPlaceOnConflict === 'boolean'
         ? input.autoPlaceOnConflict
         : DEFAULT_PREFERENCES.autoPlaceOnConflict,
+    executionModeEnabled:
+      typeof input.executionModeEnabled === 'boolean'
+        ? input.executionModeEnabled
+        : DEFAULT_PREFERENCES.executionModeEnabled,
+    telemetryShareEnabled:
+      typeof input.telemetryShareEnabled === 'boolean'
+        ? input.telemetryShareEnabled
+        : DEFAULT_PREFERENCES.telemetryShareEnabled,
+    autoStartTasksAtStartTime:
+      typeof input.autoStartTasksAtStartTime === 'boolean'
+        ? input.autoStartTasksAtStartTime
+        : DEFAULT_PREFERENCES.autoStartTasksAtStartTime,
+    autoSwitchActiveTask:
+      typeof input.autoSwitchActiveTask === 'boolean'
+        ? input.autoSwitchActiveTask
+        : DEFAULT_PREFERENCES.autoSwitchActiveTask,
     hideUnassignedInPersonal:
       typeof input.hideUnassignedInPersonal === 'boolean'
         ? input.hideUnassignedInPersonal
@@ -211,6 +340,23 @@ function normalizePreferences(input: Partial<UserPreferences> | null | undefined
       typeof input.recallDays === 'number'
         ? Math.max(0, Math.min(3, Math.floor(input.recallDays)))
         : DEFAULT_PREFERENCES.recallDays,
+    timelineZoom:
+      input.timelineZoom === 50 ||
+      input.timelineZoom === 75 ||
+      input.timelineZoom === 100 ||
+      input.timelineZoom === 125 ||
+      input.timelineZoom === 150
+        ? input.timelineZoom
+        : DEFAULT_PREFERENCES.timelineZoom,
+    uiDensity: input.uiDensity === 'compact' ? 'compact' : DEFAULT_PREFERENCES.uiDensity,
+    sidebarCollapsed:
+      typeof input.sidebarCollapsed === 'boolean'
+        ? input.sidebarCollapsed
+        : DEFAULT_PREFERENCES.sidebarCollapsed,
+    sidebarCollapsePreferenceSet:
+      typeof input.sidebarCollapsePreferenceSet === 'boolean'
+        ? input.sidebarCollapsePreferenceSet
+        : DEFAULT_PREFERENCES.sidebarCollapsePreferenceSet,
     notificationLeadTimes: normalizedLeadTimes,
     endPromptEnabled:
       typeof input.endPromptEnabled === 'boolean'
@@ -257,11 +403,21 @@ function loadPreferences(): UserPreferences {
         return normalizePreferences({
           ...payload.preferences,
           recallDays: DEFAULT_PREFERENCES.recallDays,
+          executionModeEnabled:
+            payload.preferences.executionModeEnabled ?? DEFAULT_PREFERENCES.executionModeEnabled,
+          telemetryShareEnabled:
+            payload.preferences.telemetryShareEnabled ?? DEFAULT_PREFERENCES.telemetryShareEnabled,
+          sidebarCollapsed:
+            payload.preferences.sidebarCollapsed ?? DEFAULT_PREFERENCES.sidebarCollapsed,
+          sidebarCollapsePreferenceSet:
+            payload.preferences.sidebarCollapsePreferenceSet ??
+            DEFAULT_PREFERENCES.sidebarCollapsePreferenceSet,
           notificationLeadTimes:
             payload.preferences.notificationLeadTimes ?? DEFAULT_PREFERENCES.notificationLeadTimes,
           followUpOverrunIntervals:
             payload.preferences.followUpOverrunIntervals ??
             DEFAULT_PREFERENCES.followUpOverrunIntervals,
+          uiDensity: payload.preferences.uiDensity ?? DEFAULT_PREFERENCES.uiDensity,
           compactEnabled: payload.preferences.compactEnabled ?? DEFAULT_PREFERENCES.compactEnabled,
           compactDaysShown:
             payload.preferences.compactDaysShown ?? DEFAULT_PREFERENCES.compactDaysShown,
@@ -281,7 +437,109 @@ function loadPreferences(): UserPreferences {
 }
 
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {
+  const { mode, cloudUserId } = useOnboarding();
   const [preferences, setPreferences] = useState<UserPreferences>(() => loadPreferences());
+
+  useEffect(() => {
+    const scopedExecutionMode = readScopedBoolean(
+      mode,
+      cloudUserId,
+      EXECUTION_MODE_LOCAL_STORAGE_KEY,
+      EXECUTION_MODE_CLOUD_STORAGE_PREFIX
+    );
+    const scopedTelemetryShare = readScopedBoolean(
+      mode,
+      cloudUserId,
+      TELEMETRY_SHARE_LOCAL_STORAGE_KEY,
+      TELEMETRY_SHARE_CLOUD_STORAGE_PREFIX
+    );
+    const scopedSidebarCollapsed = readScopedBoolean(
+      mode,
+      cloudUserId,
+      SIDEBAR_COLLAPSED_LOCAL_STORAGE_KEY,
+      SIDEBAR_COLLAPSED_CLOUD_STORAGE_PREFIX
+    );
+    const scopedUiDensity = readScopedUiDensity(
+      mode,
+      cloudUserId,
+      UI_DENSITY_LOCAL_STORAGE_KEY,
+      UI_DENSITY_CLOUD_STORAGE_PREFIX
+    );
+
+    if (
+      scopedExecutionMode === null &&
+      scopedTelemetryShare === null &&
+      scopedSidebarCollapsed === null &&
+      scopedUiDensity === null
+    ) {
+      return;
+    }
+
+    setPreferences((prev) => {
+      const nextExecutionMode =
+        scopedExecutionMode === null ? prev.executionModeEnabled : scopedExecutionMode;
+      const nextTelemetryShare =
+        scopedTelemetryShare === null ? prev.telemetryShareEnabled : scopedTelemetryShare;
+      const nextSidebarCollapsed =
+        scopedSidebarCollapsed === null ? prev.sidebarCollapsed : scopedSidebarCollapsed;
+      const nextUiDensity = scopedUiDensity === null ? prev.uiDensity : scopedUiDensity;
+      if (
+        nextExecutionMode === prev.executionModeEnabled &&
+        nextTelemetryShare === prev.telemetryShareEnabled &&
+        nextSidebarCollapsed === prev.sidebarCollapsed &&
+        nextUiDensity === prev.uiDensity
+      ) {
+        return prev;
+      }
+      return normalizePreferences({
+        ...prev,
+        executionModeEnabled: nextExecutionMode,
+        telemetryShareEnabled: nextTelemetryShare,
+        sidebarCollapsed: nextSidebarCollapsed,
+        uiDensity: nextUiDensity,
+      });
+    });
+  }, [mode, cloudUserId]);
+
+  useEffect(() => {
+    writeScopedBoolean(
+      mode,
+      cloudUserId,
+      EXECUTION_MODE_LOCAL_STORAGE_KEY,
+      EXECUTION_MODE_CLOUD_STORAGE_PREFIX,
+      preferences.executionModeEnabled
+    );
+  }, [mode, cloudUserId, preferences.executionModeEnabled]);
+
+  useEffect(() => {
+    writeScopedBoolean(
+      mode,
+      cloudUserId,
+      TELEMETRY_SHARE_LOCAL_STORAGE_KEY,
+      TELEMETRY_SHARE_CLOUD_STORAGE_PREFIX,
+      preferences.telemetryShareEnabled
+    );
+  }, [mode, cloudUserId, preferences.telemetryShareEnabled]);
+
+  useEffect(() => {
+    writeScopedBoolean(
+      mode,
+      cloudUserId,
+      SIDEBAR_COLLAPSED_LOCAL_STORAGE_KEY,
+      SIDEBAR_COLLAPSED_CLOUD_STORAGE_PREFIX,
+      preferences.sidebarCollapsed
+    );
+  }, [mode, cloudUserId, preferences.sidebarCollapsed]);
+
+  useEffect(() => {
+    writeScopedUiDensity(
+      mode,
+      cloudUserId,
+      UI_DENSITY_LOCAL_STORAGE_KEY,
+      UI_DENSITY_CLOUD_STORAGE_PREFIX,
+      preferences.uiDensity
+    );
+  }, [mode, cloudUserId, preferences.uiDensity]);
 
   useEffect(() => {
     try {
@@ -305,30 +563,102 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== STORAGE_KEY) return;
+      if (event.key === STORAGE_KEY) {
+        if (!event.newValue) {
+          setPreferences(DEFAULT_PREFERENCES);
+          return;
+        }
 
-      if (!event.newValue) {
-        setPreferences(DEFAULT_PREFERENCES);
+        try {
+          const parsed = JSON.parse(event.newValue) as
+            | StoredPreferencesPayload
+            | Partial<UserPreferences>;
+          const nextPreferences =
+            'schemaVersion' in parsed && 'preferences' in parsed
+              ? normalizePreferences((parsed as StoredPreferencesPayload).preferences)
+              : normalizePreferences(parsed as Partial<UserPreferences>);
+          setPreferences(nextPreferences);
+        } catch {
+          // Ignore malformed cross-window storage payloads.
+        }
         return;
       }
 
-      try {
-        const parsed = JSON.parse(event.newValue) as
-          | StoredPreferencesPayload
-          | Partial<UserPreferences>;
-        const nextPreferences =
-          'schemaVersion' in parsed && 'preferences' in parsed
-            ? normalizePreferences((parsed as StoredPreferencesPayload).preferences)
-            : normalizePreferences(parsed as Partial<UserPreferences>);
-        setPreferences(nextPreferences);
-      } catch {
-        // Ignore malformed cross-window storage payloads.
+      const executionModeScopedKey = getScopedStorageKey(
+        mode,
+        cloudUserId,
+        EXECUTION_MODE_LOCAL_STORAGE_KEY,
+        EXECUTION_MODE_CLOUD_STORAGE_PREFIX
+      );
+      const telemetryShareScopedKey = getScopedStorageKey(
+        mode,
+        cloudUserId,
+        TELEMETRY_SHARE_LOCAL_STORAGE_KEY,
+        TELEMETRY_SHARE_CLOUD_STORAGE_PREFIX
+      );
+      const sidebarCollapsedScopedKey = getScopedStorageKey(
+        mode,
+        cloudUserId,
+        SIDEBAR_COLLAPSED_LOCAL_STORAGE_KEY,
+        SIDEBAR_COLLAPSED_CLOUD_STORAGE_PREFIX
+      );
+      const uiDensityScopedKey = getScopedStorageKey(
+        mode,
+        cloudUserId,
+        UI_DENSITY_LOCAL_STORAGE_KEY,
+        UI_DENSITY_CLOUD_STORAGE_PREFIX
+      );
+      if (
+        !event.key ||
+        (event.key !== executionModeScopedKey &&
+          event.key !== telemetryShareScopedKey &&
+          event.key !== sidebarCollapsedScopedKey &&
+          event.key !== uiDensityScopedKey)
+      ) {
+        return;
       }
+
+      const scopedExecutionMode = readScopedBoolean(
+        mode,
+        cloudUserId,
+        EXECUTION_MODE_LOCAL_STORAGE_KEY,
+        EXECUTION_MODE_CLOUD_STORAGE_PREFIX
+      );
+      const scopedTelemetryShare = readScopedBoolean(
+        mode,
+        cloudUserId,
+        TELEMETRY_SHARE_LOCAL_STORAGE_KEY,
+        TELEMETRY_SHARE_CLOUD_STORAGE_PREFIX
+      );
+      const scopedSidebarCollapsed = readScopedBoolean(
+        mode,
+        cloudUserId,
+        SIDEBAR_COLLAPSED_LOCAL_STORAGE_KEY,
+        SIDEBAR_COLLAPSED_CLOUD_STORAGE_PREFIX
+      );
+      const scopedUiDensity = readScopedUiDensity(
+        mode,
+        cloudUserId,
+        UI_DENSITY_LOCAL_STORAGE_KEY,
+        UI_DENSITY_CLOUD_STORAGE_PREFIX
+      );
+      setPreferences((prev) =>
+        normalizePreferences({
+          ...prev,
+          executionModeEnabled:
+            scopedExecutionMode === null ? prev.executionModeEnabled : scopedExecutionMode,
+          telemetryShareEnabled:
+            scopedTelemetryShare === null ? prev.telemetryShareEnabled : scopedTelemetryShare,
+          sidebarCollapsed:
+            scopedSidebarCollapsed === null ? prev.sidebarCollapsed : scopedSidebarCollapsed,
+          uiDensity: scopedUiDensity === null ? prev.uiDensity : scopedUiDensity,
+        })
+      );
     };
 
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
-  }, []);
+  }, [cloudUserId, mode]);
 
   const updatePreferences = (updates: Partial<UserPreferences>) => {
     setPreferences((prev) => normalizePreferences({ ...prev, ...updates }));

@@ -39,7 +39,7 @@ export default function AboutSettings() {
 
   return (
     <div className="space-y-4">
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Build
         </p>
@@ -54,7 +54,7 @@ export default function AboutSettings() {
         </p>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
             Diagnostics
@@ -63,7 +63,7 @@ export default function AboutSettings() {
             Copy debug info
           </Button>
         </div>
-        <pre className="mt-3 max-h-[300px] overflow-auto ui-hud-row rounded-[10px] p-3 text-[11px] text-[color:var(--hud-muted)]">
+        <pre className="mt-3 max-h-[300px] overflow-auto ui-hud-row ui-v1-radius-sm p-3 text-[11px] text-[color:var(--hud-muted)]">
           {JSON.stringify(diagnostics, null, 2)}
         </pre>
       </section>

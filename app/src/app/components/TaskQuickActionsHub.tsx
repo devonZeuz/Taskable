@@ -207,7 +207,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
     if (result.outcome === 'conflict') {
       toast.custom(
         (toastId) => (
-          <div className="ui-hud-shell w-[340px] rounded-[12px] p-3">
+          <div className="ui-hud-shell w-[340px] ui-v1-radius-sm p-3">
             <p className="text-sm font-semibold text-[color:var(--hud-text)]">Extension conflict</p>
             <p className="mt-1 text-xs text-[color:var(--hud-muted)]">
               Extending now overlaps {Math.max(1, plan.overlapCount)} task
@@ -216,7 +216,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                className="ui-hud-btn-soft h-8 rounded-[9px] px-3 text-[11px] font-semibold"
+                className="ui-hud-btn-soft h-8 ui-v1-radius-sm px-3 text-[11px] font-semibold"
                 onClick={() => {
                   updateTask(currentTask.id, {
                     durationMinutes: plan.nextDurationMinutes,
@@ -231,7 +231,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
               </button>
               <button
                 type="button"
-                className="ui-hud-btn h-8 rounded-[9px] px-3 text-[11px] font-semibold opacity-85"
+                className="ui-hud-btn h-8 ui-v1-radius-sm px-3 text-[11px] font-semibold opacity-85"
                 onClick={() => {
                   toast.dismiss(toastId);
                 }}
@@ -256,7 +256,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
     <div className="pointer-events-none absolute bottom-24 left-1/2 z-40 w-full max-w-[440px] -translate-x-1/2 px-3">
       <div
         data-testid="task-quick-actions-hub"
-        className="pointer-events-auto rounded-[13px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2 shadow-[0_14px_28px_rgba(0,0,0,0.34)] backdrop-blur-md"
+        className="pointer-events-auto ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2 ui-v1-elevation-2 backdrop-blur-md"
       >
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -267,14 +267,14 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6.5 w-6.5 items-center justify-center rounded-[9px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-85 transition-colors hover:brightness-105 hover:opacity-100"
+            className="flex h-6.5 w-6.5 items-center justify-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-85 transition-colors hover:brightness-105 hover:opacity-100"
             title="Close actions"
           >
             <X className="size-4" />
           </button>
         </div>
 
-        <div className="grid w-full grid-flow-col auto-cols-fr items-center gap-1.5 rounded-[11px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-1.5">
+        <div className="grid w-full grid-flow-col auto-cols-fr items-center gap-1.5 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-1.5">
           <button
             type="button"
             disabled={actionsDisabled}
@@ -295,7 +295,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
                 startTask(currentTask.id);
               })
             }
-            className="inline-flex h-8 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-2 text-[11px] font-semibold text-[color:var(--hud-text)] disabled:cursor-not-allowed disabled:opacity-55"
+            className="inline-flex h-8 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-2 text-[11px] font-semibold text-[color:var(--hud-text)] disabled:cursor-not-allowed disabled:opacity-55"
           >
             <PrimaryIcon className="size-3.5" />
             {primaryLabel}
@@ -306,7 +306,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
               type="button"
               disabled={actionsDisabled}
               onClick={() => runGuarded(() => completeTask(currentTask.id))}
-              className="inline-flex h-8 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-2 text-[11px] font-semibold text-[var(--hud-accent-soft-text)] disabled:cursor-not-allowed disabled:opacity-55"
+              className="inline-flex h-8 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-2 text-[11px] font-semibold text-[var(--hud-accent-soft-text)] disabled:cursor-not-allowed disabled:opacity-55"
             >
               <Check className="size-3.5" />
               Done
@@ -322,7 +322,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
                   runExtendToNow();
                 })
               }
-              className="inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[color:var(--hud-border)] bg-transparent px-2 text-[11px] font-semibold text-[color:var(--hud-text)] opacity-85 disabled:cursor-not-allowed disabled:opacity-55"
+              className="inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-transparent px-2 text-[11px] font-semibold text-[color:var(--hud-text)] opacity-85 disabled:cursor-not-allowed disabled:opacity-55"
             >
               Extend
             </button>
@@ -333,7 +333,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
               type="button"
               disabled={actionsDisabled}
               onClick={() => runGuarded(runRescheduleRemaining)}
-              className="inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[color:var(--hud-border)] bg-transparent px-2 text-[11px] font-semibold text-[color:var(--hud-text)] opacity-85 disabled:cursor-not-allowed disabled:opacity-55"
+              className="inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-transparent px-2 text-[11px] font-semibold text-[color:var(--hud-text)] opacity-85 disabled:cursor-not-allowed disabled:opacity-55"
             >
               Next
             </button>
@@ -353,7 +353,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
               <button
                 type="button"
                 onClick={() => openConflictResolver(currentTask.id)}
-                className="inline-flex h-6 items-center justify-center rounded-[8px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-2 text-[10px] font-semibold text-[color:var(--hud-text)]"
+                className="inline-flex h-6 items-center justify-center ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-2 text-[10px] font-semibold text-[color:var(--hud-text)]"
               >
                 Resolve
               </button>
@@ -365,7 +365,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
                   void handleTakeover();
                 }}
                 disabled={takeoverPending}
-                className="inline-flex h-6 items-center justify-center rounded-[8px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-2 text-[10px] font-semibold text-[color:var(--hud-text)] disabled:opacity-55"
+                className="inline-flex h-6 items-center justify-center ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-2 text-[10px] font-semibold text-[color:var(--hud-text)] disabled:opacity-55"
               >
                 {takeoverPending ? 'Taking over...' : 'Take over'}
               </button>

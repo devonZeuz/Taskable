@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
-  Pin,
   Sparkles,
   TriangleAlert,
 } from 'lucide-react';
@@ -18,6 +17,7 @@ import { useWorkday } from '../context/WorkdayContext';
 import { useNotificationSettings } from '../context/NotificationSettingsContext';
 import { useUserPreferences } from '../context/UserPreferencesContext';
 import { useCloudSync } from '../context/CloudSyncContext';
+import { resolveLayoutV1Flag } from '../flags';
 import {
   combineDayAndTime,
   findNextAvailableSlot,
@@ -29,6 +29,8 @@ import {
   timeToMinutes,
 } from '../services/scheduling';
 import { applyAdaptiveExtendPlan, buildAdaptiveExtendPlan } from '../services/adaptiveScheduling';
+import { buildWeeklyExecutionForecast } from '../services/executionForecast';
+import { buildWeeklyExecutionInsights } from '../services/executionInsights';
 import {
   calculateElapsedMinutes,
   getOverrunMinutes,
@@ -38,7 +40,6 @@ import {
 interface DailyPlanningPanelProps {
   tasks: Task[];
   scheduleTasks?: Task[];
-  onEdit: (task: Task) => void;
 }
 
 const PANEL_COLLAPSED_STORAGE_KEY = 'taskable:daily-planning-collapsed';
@@ -46,23 +47,26 @@ const PANEL_COLLAPSED_STORAGE_KEY = 'taskable:daily-planning-collapsed';
 export default function DailyPlanningPanel({
   tasks,
   scheduleTasks,
-  onEdit,
 }: DailyPlanningPanelProps) {
   const { moveTask, completeTask, setTaskFocus, startTask, pauseTask, updateTask } = useTasks();
   const { workday } = useWorkday();
   const { enabled, permission, incomingLeadTimes, setEnabled, requestPermission } =
     useNotificationSettings();
   const {
-    preferences: { slotMinutes, autoShoveOnExtend },
+    preferences: { slotMinutes, autoShoveOnExtend, executionModeEnabled },
   } = useUserPreferences();
   const { canWriteTasks, activeOrgRole, isTaskConflictLocked, openConflictResolver } =
     useCloudSync();
+  const layoutV1Enabled = resolveLayoutV1Flag();
   const [showReview, setShowReview] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (!layoutV1Enabled) return false;
     try {
-      return localStorage.getItem(PANEL_COLLAPSED_STORAGE_KEY) === 'true';
+      const storedValue = localStorage.getItem(PANEL_COLLAPSED_STORAGE_KEY);
+      if (storedValue === null) return true;
+      return storedValue === 'true';
     } catch {
-      return false;
+      return true;
     }
   });
   const [nowTimestamp, setNowTimestamp] = useState(() => Date.now());
@@ -92,11 +96,6 @@ export default function DailyPlanningPanel({
     const interval = window.setInterval(() => setNowTimestamp(Date.now()), 30_000);
     return () => window.clearInterval(interval);
   }, []);
-
-  const inboxTasks = useMemo(
-    () => tasks.filter((task) => !task.startDateTime || task.status === 'inbox'),
-    [tasks]
-  );
 
   const todayTasks = useMemo(
     () =>
@@ -199,14 +198,49 @@ export default function DailyPlanningPanel({
     const overdueCount = missedTasks.length;
     return { completed, remaining, overdueCount, total: todayTasks.length };
   }, [missedTasks.length, todayTasks]);
+  const plannedTodayMinutes = useMemo(
+    () =>
+      todayTasks.reduce((total, task) => {
+        if (task.completed || task.type === 'block') return total;
+        return total + Math.max(0, task.durationMinutes);
+      }, 0),
+    [todayTasks]
+  );
+  const workdayCapacityMinutes = useMemo(() => getWorkdayMinutes(workday), [workday]);
+  const overloadMinutes = Math.max(0, plannedTodayMinutes - workdayCapacityMinutes);
+  const weeklyExecutionInsights = useMemo(
+    () => buildWeeklyExecutionInsights(tasks, nowTimestamp, slotMinutes),
+    [nowTimestamp, slotMinutes, tasks]
+  );
+  const weeklyExecutionForecast = useMemo(
+    () => buildWeeklyExecutionForecast(tasks, workday, nowTimestamp),
+    [nowTimestamp, tasks, workday]
+  );
+  const overloadMovePlan = useMemo(() => {
+    if (overloadMinutes <= 0) return [];
+    const candidates = [...todayTasksByTime]
+      .filter((task) => !task.completed && task.type !== 'block' && task.startDateTime)
+      .sort((a, b) =>
+        a.startDateTime && b.startDateTime ? b.startDateTime.localeCompare(a.startDateTime) : 0
+      );
+    const selected: Task[] = [];
+    let covered = 0;
+    candidates.forEach((task) => {
+      if (covered >= overloadMinutes) return;
+      selected.push(task);
+      covered += task.durationMinutes;
+    });
+    return selected;
+  }, [overloadMinutes, todayTasksByTime]);
 
   useEffect(() => {
+    if (!layoutV1Enabled) return;
     try {
       localStorage.setItem(PANEL_COLLAPSED_STORAGE_KEY, String(isCollapsed));
     } catch {
       // ignore storage errors
     }
-  }, [isCollapsed]);
+  }, [isCollapsed, layoutV1Enabled]);
 
   const autoScheduleTask = (task: Task) => {
     if (!ensureCloudWritePermission()) return;
@@ -372,6 +406,57 @@ export default function DailyPlanningPanel({
     toast.success(`Carried over ${movedCount} task${movedCount === 1 ? '' : 's'} to tomorrow.`);
   };
 
+  const applyOverloadSuggestion = () => {
+    if (!ensureCloudWritePermission()) return;
+    if (overloadMovePlan.length === 0) {
+      toast.message('No overload adjustments needed.');
+      return;
+    }
+
+    const scheduleShadow: Task[] = scheduleScopeTasks.map((task) => ({
+      ...task,
+      subtasks: task.subtasks.map((subtask) => ({ ...subtask })),
+    }));
+
+    let movedCount = 0;
+    let cursor = workday.startHour * 60;
+    const orderedPlan = [...overloadMovePlan].sort((a, b) =>
+      a.startDateTime && b.startDateTime ? a.startDateTime.localeCompare(b.startDateTime) : 0
+    );
+
+    orderedPlan.forEach((task) => {
+      if (isTaskConflictLocked(task.id)) return;
+      const slot =
+        findNextAvailableSlotAfter(
+          scheduleShadow,
+          tomorrowKey,
+          task.durationMinutes,
+          cursor,
+          task.id,
+          workday
+        ) ??
+        findNextAvailableSlot(scheduleShadow, tomorrowKey, task.durationMinutes, task.id, workday);
+      if (!slot) return;
+
+      const startDateTime = combineDayAndTime(tomorrowKey, slot.startTime).toISOString();
+      moveTask(task.id, startDateTime);
+      const shadowTask = scheduleShadow.find((entry) => entry.id === task.id);
+      if (shadowTask) {
+        shadowTask.startDateTime = startDateTime;
+        shadowTask.status = 'scheduled';
+      }
+      cursor = timeToMinutes(slot.endTime);
+      movedCount += 1;
+    });
+
+    if (movedCount === 0) {
+      toast.error('Could not move suggested tasks to tomorrow.');
+      return;
+    }
+
+    toast.success(`Moved ${movedCount} task${movedCount === 1 ? '' : 's'} to tomorrow.`);
+  };
+
   const handleNotificationsToggle = async (nextEnabled: boolean) => {
     if (!nextEnabled) {
       setEnabled(false);
@@ -467,7 +552,7 @@ export default function DailyPlanningPanel({
     if (result.outcome === 'conflict') {
       toast.custom(
         (toastId) => (
-          <div className="ui-hud-shell w-[360px] rounded-[12px] p-3">
+          <div className="ui-hud-shell w-[360px] ui-v1-radius-sm p-3">
             <p className="text-sm font-semibold text-[color:var(--hud-text)]">Extension conflict</p>
             <p className="mt-1 text-xs text-[color:var(--hud-muted)]">
               Extending now overlaps {Math.max(1, plan.overlapCount)} task
@@ -476,7 +561,7 @@ export default function DailyPlanningPanel({
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                className="ui-hud-btn-soft h-8 rounded-[9px] px-3 text-[11px] font-semibold"
+                className="ui-hud-btn-soft h-8 ui-v1-radius-sm px-3 text-[11px] font-semibold"
                 onClick={() => {
                   updateTask(task.id, {
                     durationMinutes: plan.nextDurationMinutes,
@@ -491,7 +576,7 @@ export default function DailyPlanningPanel({
               </button>
               <button
                 type="button"
-                className="ui-hud-btn h-8 rounded-[9px] px-3 text-[11px] font-semibold opacity-85"
+                className="ui-hud-btn h-8 ui-v1-radius-sm px-3 text-[11px] font-semibold opacity-85"
                 onClick={() => {
                   toast.dismiss(toastId);
                 }}
@@ -560,456 +645,566 @@ export default function DailyPlanningPanel({
   };
 
   return (
-    <div
-      data-testid="daily-planning-panel"
-      className="ui-hud-panel mx-3 mb-3 shrink-0 rounded-[16px] p-3 backdrop-blur-sm md:mx-5 md:mb-4 md:p-4"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-bold text-[color:var(--hud-text)] md:text-base">
-            Daily Planning
-          </h3>
-          <p className="text-[11px] text-[color:var(--hud-muted)] md:text-xs">
-            Inbox -&gt; Schedule -&gt; Today Focus -&gt; Review
-          </p>
+    <div className="mb-3 shrink-0 px-3 md:mb-4 md:px-5">
+      <div
+        data-testid="daily-planning-panel"
+        className="ui-hud-panel ui-v1-radius-md p-3 backdrop-blur-sm md:p-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-[color:var(--hud-text)] md:text-base">
+              Daily Planning
+            </h3>
+            <p className="text-[11px] text-[color:var(--hud-muted)] md:text-xs">
+              Inbox -&gt; Schedule -&gt; Today Focus -&gt; Review
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {(!isCollapsed || !layoutV1Enabled) && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                data-testid="daily-review-toggle"
+                onClick={() => setShowReview((prev) => !prev)}
+                className="h-8 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] hover:brightness-105"
+              >
+                <CalendarCheck2 className="mr-1.5 size-4" />
+                End-of-day Review
+              </Button>
+            )}
+            {layoutV1Enabled && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                data-testid="daily-planning-collapse-toggle"
+                onClick={() => {
+                  setIsCollapsed((prev) => !prev);
+                  if (!isCollapsed) {
+                    setShowReview(false);
+                  }
+                }}
+                className="h-8 ui-v1-radius-sm border border-[color:var(--hud-border)] px-2.5 text-[11px] text-[color:var(--hud-text)] opacity-85 hover:bg-[var(--hud-surface-soft)] hover:opacity-100"
+              >
+                {isCollapsed ? (
+                  <>
+                    <ChevronDown className="mr-1 size-4" />
+                    Expand
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp className="mr-1 size-4" />
+                    Collapse
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {!isCollapsed && (
+
+        {layoutV1Enabled && isCollapsed && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] px-3 py-2">
+            <div className="text-xs text-[color:var(--hud-muted)]">
+              <p>
+                Planned {formatMinutes(plannedTodayMinutes)} / Capacity{' '}
+                {formatMinutes(workdayCapacityMinutes)}
+              </p>
+              <p>
+                Tasks today: {todayTasks.length} ({reviewSummary.remaining} open)
+              </p>
+            </div>
             <Button
               type="button"
               size="sm"
               variant="outline"
-              data-testid="daily-review-toggle"
-              onClick={() => setShowReview((prev) => !prev)}
-              className="h-8 rounded-[10px] border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] hover:brightness-105"
+              onClick={() => setIsCollapsed(false)}
+              className="h-7 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 text-[11px] text-[color:var(--hud-text)]"
             >
-              <CalendarCheck2 className="mr-1.5 size-4" />
-              End-of-day Review
+              Open planning panel
             </Button>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            data-testid="daily-planning-collapse-toggle"
-            onClick={() => {
-              setIsCollapsed((prev) => !prev);
-              if (!isCollapsed) {
-                setShowReview(false);
-              }
-            }}
-            className="h-8 rounded-[10px] border border-[color:var(--hud-border)] px-2.5 text-[11px] text-[color:var(--hud-text)] opacity-85 hover:bg-[var(--hud-surface-soft)] hover:opacity-100"
-          >
-            {isCollapsed ? (
-              <>
-                <ChevronDown className="mr-1 size-4" />
-                Expand
-              </>
-            ) : (
-              <>
-                <ChevronUp className="mr-1 size-4" />
-                Collapse
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+          </div>
+        )}
 
-      {!isCollapsed && (
-        <div className="mt-3 grid gap-3 lg:grid-cols-3">
-          <section className="ui-hud-section rounded-[12px] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.07em] text-[color:var(--hud-muted)]">
-                <Sparkles className="size-3.5" />
-                Inbox Triage
-              </div>
-              <Badge className="ui-hud-chip rounded-full px-2 text-[10px]">
-                {inboxTasks.length}
-              </Badge>
-            </div>
-            <div className="space-y-2">
-              {inboxTasks.slice(0, 4).map((task) => (
-                <div key={task.id} className="ui-hud-row rounded-[10px] p-2">
-                  <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
-                    {task.title}
+        {(!layoutV1Enabled || !isCollapsed) && (
+          <div className="mt-3 space-y-3">
+            {overloadMinutes > 0 && (
+              <div
+                data-testid="daily-smart-overload-banner"
+                className="ui-hud-row flex flex-wrap items-center justify-between gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] px-3 py-2"
+              >
+                <div>
+                  <p className="text-xs font-semibold text-[color:var(--hud-text)]">
+                    Smart load alert for today
                   </p>
                   <p className="text-[11px] text-[color:var(--hud-muted)]">
-                    {task.durationMinutes}m
+                    Planned {formatMinutes(plannedTodayMinutes)} vs capacity{' '}
+                    {formatMinutes(workdayCapacityMinutes)}. Move {overloadMovePlan.length} task
+                    {overloadMovePlan.length === 1 ? '' : 's'} to rebalance.
                   </p>
-                  <div className="mt-2 flex gap-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      data-testid={`daily-auto-place-${task.id}`}
-                      onClick={() => autoScheduleTask(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn-accent h-7 rounded-[9px] px-2.5 text-[11px]"
-                    >
-                      Auto-place
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onEdit(task)}
-                      className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                    >
-                      Edit
-                    </Button>
-                  </div>
                 </div>
-              ))}
-              {inboxTasks.length === 0 && (
-                <p className="text-xs text-[color:var(--hud-muted)]">Inbox is clear.</p>
-              )}
-            </div>
-          </section>
-
-          <section className="ui-hud-section rounded-[12px] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.07em] text-[color:var(--hud-muted)]">
-                <Pin className="size-3.5" />
-                Today Focus
-              </div>
-              <Badge className="ui-hud-chip rounded-full px-2 text-[10px]">
-                {focusTasks.length}
-              </Badge>
-            </div>
-            <div className="space-y-2">
-              {todayFocusDisplayTasks.slice(0, 5).map((task) => (
-                <div
-                  key={task.id}
-                  className="ui-hud-row flex items-center justify-between gap-2 rounded-[10px] px-2 py-1.5"
+                <Button
+                  type="button"
+                  size="sm"
+                  data-testid="daily-smart-overload-move"
+                  onClick={applyOverloadSuggestion}
+                  disabled={!canWriteTasks}
+                  className="ui-hud-btn-accent h-7 ui-v1-radius-sm px-2.5 text-[11px]"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
-                      {task.title}
-                    </p>
-                    <p className="text-[11px] text-[color:var(--hud-muted)]">
-                      {task.startDateTime
-                        ? new Date(task.startDateTime).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false,
-                          })
-                        : 'Unscheduled'}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handlePinToggle(task)}
-                    disabled={!canWriteTasks}
-                    className={`h-7 rounded-[9px] px-2 text-[11px] ${
-                      task.focus ? 'ui-hud-btn-soft' : 'ui-hud-btn opacity-85'
-                    }`}
-                  >
-                    {task.focus ? 'Pinned' : 'Pin'}
-                  </Button>
-                </div>
-              ))}
-              {todayFocusDisplayTasks.length === 0 && (
-                <p className="text-xs text-[color:var(--hud-muted)]">
-                  No tasks scheduled for today.
-                </p>
-              )}
-            </div>
-          </section>
-
-          <section className="ui-hud-section rounded-[12px] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.07em] text-[color:var(--hud-muted)]">
-                <TriangleAlert className="size-3.5" />
-                Execution + Alerts
+                  Move {overloadMovePlan.length} to tomorrow
+                </Button>
               </div>
-              <Badge className="ui-hud-chip rounded-full px-2 text-[10px]">
-                {startingSoonTasks.length +
-                  runningNowTasks.length +
-                  runningLateTasks.length +
-                  missedTasks.length}
-              </Badge>
-            </div>
-
-            <div className="ui-hud-row mb-2 rounded-[10px] px-2 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--hud-text)]">
-                  <Bell className="size-3.5" />
-                  Notifications
-                </div>
-                <Switch checked={enabled} onCheckedChange={handleNotificationsToggle} />
-              </div>
-              <p className="mt-1 text-[10px] text-[color:var(--hud-muted)]">
-                Permission: {permission === 'unsupported' ? 'unsupported' : permission}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-                Starting soon
-              </p>
-              {startingSoonTasks.slice(0, 3).map((task) => (
-                <div key={task.id} className="ui-hud-row rounded-[10px] p-2">
-                  <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
-                    {task.title}
+            )}
+            {weeklyExecutionForecast.weeklyOverloadMinutes > 0 && (
+              <div
+                data-testid="daily-smart-weekly-overload"
+                className="ui-hud-row flex flex-wrap items-center justify-between gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] px-3 py-2"
+              >
+                <div>
+                  <p className="text-xs font-semibold text-[color:var(--hud-text)]">
+                    Weekly load projection
                   </p>
                   <p className="text-[11px] text-[color:var(--hud-muted)]">
-                    {task.startDateTime ? formatTaskTime(task.startDateTime) : 'Unscheduled'}
+                    Forecast overload: +
+                    {formatMinutes(weeklyExecutionForecast.weeklyOverloadMinutes)} across{' '}
+                    {weeklyExecutionForecast.overloadedDays} day
+                    {weeklyExecutionForecast.overloadedDays === 1 ? '' : 's'}.
+                    {weeklyExecutionForecast.peakOverloadDay
+                      ? ` Peak ${formatDayKeyLabel(
+                          weeklyExecutionForecast.peakOverloadDay.dayKey
+                        )}: +${formatMinutes(weeklyExecutionForecast.peakOverloadDay.overloadMinutes)}.`
+                      : ''}
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => handleStart(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn-accent h-7 rounded-[9px] px-2.5 text-[11px]"
-                    >
-                      Start
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => rescheduleNext(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                    >
-                      Next Slot
-                    </Button>
-                  </div>
                 </div>
-              ))}
-              {startingSoonTasks.length === 0 && (
-                <p className="text-xs text-[color:var(--hud-muted)]">
-                  No tasks in the current lead window.
-                </p>
-              )}
-            </div>
-
-            <div className="mt-3 space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-                Running now
-              </p>
-              {runningNowTasks.slice(0, 3).map((task) => (
-                <div key={task.id} className="ui-hud-row rounded-[10px] p-2">
-                  <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
-                    {task.title}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handlePause(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                    >
-                      Pause
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleExtendToNow(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                    >
-                      Extend
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => rescheduleNext(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                    >
-                      Next Slot
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => handleMarkDone(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn-soft h-7 rounded-[9px] px-2.5 text-[11px]"
-                    >
-                      Mark Done
-                    </Button>
+              </div>
+            )}
+            <div className="grid gap-3 lg:grid-cols-2">
+              <section className="ui-hud-section ui-v1-radius-sm p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.07em] text-[color:var(--hud-muted)]">
+                    <Sparkles className="size-3.5" />
+                    Today Focus
                   </div>
+                  <Badge className="ui-hud-chip rounded-full px-2 text-[10px]">
+                    {focusTasks.length}
+                  </Badge>
                 </div>
-              ))}
-              {runningNowTasks.length === 0 && (
-                <p className="text-xs text-[color:var(--hud-muted)]">
-                  No active tasks within planned windows.
-                </p>
-              )}
-            </div>
-
-            <div className="mt-3 space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-                Running late
-              </p>
-              {runningLateTasks.slice(0, 3).map((task) => {
-                const overrun = getOverrunMinutes(task, nowTimestamp);
-                return (
-                  <div key={task.id} className="ui-hud-row rounded-[10px] p-2">
-                    <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
-                      {task.title}
-                    </p>
-                    <p className="text-[11px] font-semibold text-[color:var(--hud-danger-text)]">
-                      Running late by {Math.max(1, Math.floor(overrun))}m
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
+                <div className="space-y-2">
+                  {todayFocusDisplayTasks.slice(0, 5).map((task) => (
+                    <div
+                      key={task.id}
+                      className="ui-hud-row flex items-center justify-between gap-2 ui-v1-radius-sm px-2 py-1.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
+                          {task.title}
+                        </p>
+                        <p className="text-[11px] text-[color:var(--hud-muted)]">
+                          {task.startDateTime
+                            ? new Date(task.startDateTime).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false,
+                              })
+                            : 'Unscheduled'}
+                        </p>
+                      </div>
                       <Button
                         type="button"
                         size="sm"
                         variant="ghost"
-                        onClick={() => handlePause(task)}
+                        onClick={() => handlePinToggle(task)}
                         disabled={!canWriteTasks}
-                        className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
+                        className={`h-7 ui-v1-radius-sm px-2 text-[11px] ${
+                          task.focus ? 'ui-hud-btn-soft' : 'ui-hud-btn opacity-85'
+                        }`}
                       >
-                        Pause
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleExtendToNow(task)}
-                        disabled={!canWriteTasks}
-                        className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                      >
-                        Extend to now
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleRescheduleRemaining(task)}
-                        disabled={!canWriteTasks}
-                        className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                      >
-                        Reschedule remaining
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => handleMarkDone(task)}
-                        disabled={!canWriteTasks}
-                        className="ui-hud-btn-soft h-7 rounded-[9px] px-2.5 text-[11px]"
-                      >
-                        Mark Done
+                        {task.focus ? 'Pinned' : 'Pin'}
                       </Button>
                     </div>
-                  </div>
-                );
-              })}
-              {runningLateTasks.length === 0 && (
-                <p className="text-xs text-[color:var(--hud-muted)]">No running tasks are late.</p>
-              )}
-            </div>
-
-            <div className="mt-3 space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-                Missed
-              </p>
-              {missedTasks.slice(0, 3).map((task) => (
-                <div key={task.id} className="ui-hud-row rounded-[10px] p-2">
-                  <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
-                    {task.title}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => handleStart(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn-accent h-7 rounded-[9px] px-2.5 text-[11px]"
-                    >
-                      Start
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => carryToTomorrow(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                    >
-                      Carry Tomorrow
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => rescheduleNext(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn h-7 rounded-[9px] px-2.5 text-[11px] opacity-85"
-                    >
-                      Next Slot
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => handleMarkDone(task)}
-                      disabled={!canWriteTasks}
-                      className="ui-hud-btn-soft h-7 rounded-[9px] px-2.5 text-[11px]"
-                    >
-                      Mark Done
-                    </Button>
-                  </div>
+                  ))}
+                  {todayFocusDisplayTasks.length === 0 && (
+                    <p className="text-xs text-[color:var(--hud-muted)]">
+                      No tasks scheduled for today.
+                    </p>
+                  )}
                 </div>
-              ))}
-              {missedTasks.length === 0 && (
-                <p className="text-xs text-[color:var(--hud-muted)]">No overdue tasks right now.</p>
-              )}
-            </div>
-          </section>
-        </div>
-      )}
+              </section>
 
-      {!isCollapsed && showReview && (
-        <div className="ui-hud-section mt-3 rounded-[12px] p-3">
-          <div className="flex flex-wrap items-center gap-2 text-[12px] text-[color:var(--hud-text)]">
-            <span className="inline-flex items-center gap-1">
-              <Clock3 className="size-3.5" />
-              Today: {reviewSummary.total}
-            </span>
-            <Badge className="ui-status-success rounded-full px-2 text-[10px]">
-              Done {reviewSummary.completed}
-            </Badge>
-            <Badge className="ui-status-warning rounded-full px-2 text-[10px]">
-              Open {reviewSummary.remaining}
-            </Badge>
-            <Badge className="ui-status-danger rounded-full px-2 text-[10px]">
-              Overdue {reviewSummary.overdueCount}
-            </Badge>
-            <Badge className="ui-status-info rounded-full px-2 text-[10px]">
-              Tomorrow starts {minutesToTime(workStartMinutes)}
-            </Badge>
+              <section className="ui-hud-section ui-v1-radius-sm p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.07em] text-[color:var(--hud-muted)]">
+                    <TriangleAlert className="size-3.5" />
+                    Execution + Alerts
+                  </div>
+                  <Badge className="ui-hud-chip rounded-full px-2 text-[10px]">
+                    {startingSoonTasks.length +
+                      runningNowTasks.length +
+                      runningLateTasks.length +
+                      missedTasks.length}
+                  </Badge>
+                </div>
+
+                <div className="ui-hud-row mb-2 ui-v1-radius-sm px-2 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--hud-text)]">
+                      <Bell className="size-3.5" />
+                      Notifications
+                    </div>
+                    <Switch checked={enabled} onCheckedChange={handleNotificationsToggle} />
+                  </div>
+                  <p className="mt-1 text-[10px] text-[color:var(--hud-muted)]">
+                    Permission: {permission === 'unsupported' ? 'unsupported' : permission}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                    Starting soon
+                  </p>
+                  {startingSoonTasks.slice(0, 3).map((task) => (
+                    <div key={task.id} className="ui-hud-row ui-v1-radius-sm p-2">
+                      <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
+                        {task.title}
+                      </p>
+                      <p className="text-[11px] text-[color:var(--hud-muted)]">
+                        {task.startDateTime ? formatTaskTime(task.startDateTime) : 'Unscheduled'}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleStart(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn-accent h-7 ui-v1-radius-sm px-2.5 text-[11px]"
+                        >
+                          Start
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => rescheduleNext(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                        >
+                          Next Slot
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {startingSoonTasks.length === 0 && (
+                    <p className="text-xs text-[color:var(--hud-muted)]">
+                      No tasks in the current lead window.
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                    Running now
+                  </p>
+                  {runningNowTasks.slice(0, 3).map((task) => (
+                    <div key={task.id} className="ui-hud-row ui-v1-radius-sm p-2">
+                      <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
+                        {task.title}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handlePause(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                        >
+                          Pause
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleExtendToNow(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                        >
+                          Extend
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => rescheduleNext(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                        >
+                          Next Slot
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleMarkDone(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn-soft h-7 ui-v1-radius-sm px-2.5 text-[11px]"
+                        >
+                          Mark Done
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {runningNowTasks.length === 0 && (
+                    <p className="text-xs text-[color:var(--hud-muted)]">
+                      No active tasks within planned windows.
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                    Running late
+                  </p>
+                  {runningLateTasks.slice(0, 3).map((task) => {
+                    const overrun = getOverrunMinutes(task, nowTimestamp);
+                    return (
+                      <div key={task.id} className="ui-hud-row ui-v1-radius-sm p-2">
+                        <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
+                          {task.title}
+                        </p>
+                        <p className="text-[11px] font-semibold text-[color:var(--hud-danger-text)]">
+                          Running late by {Math.max(1, Math.floor(overrun))}m
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handlePause(task)}
+                            disabled={!canWriteTasks}
+                            className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                          >
+                            Pause
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleExtendToNow(task)}
+                            disabled={!canWriteTasks}
+                            className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                          >
+                            Extend to now
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRescheduleRemaining(task)}
+                            disabled={!canWriteTasks}
+                            className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                          >
+                            Reschedule remaining
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleMarkDone(task)}
+                            disabled={!canWriteTasks}
+                            className="ui-hud-btn-soft h-7 ui-v1-radius-sm px-2.5 text-[11px]"
+                          >
+                            Mark Done
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {runningLateTasks.length === 0 && (
+                    <p className="text-xs text-[color:var(--hud-muted)]">
+                      No running tasks are late.
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                    Missed
+                  </p>
+                  {missedTasks.slice(0, 3).map((task) => (
+                    <div key={task.id} className="ui-hud-row ui-v1-radius-sm p-2">
+                      <p className="truncate text-sm font-semibold text-[color:var(--hud-text)]">
+                        {task.title}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleStart(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn-accent h-7 ui-v1-radius-sm px-2.5 text-[11px]"
+                        >
+                          Start
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => carryToTomorrow(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                        >
+                          Carry Tomorrow
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => rescheduleNext(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px] opacity-85"
+                        >
+                          Next Slot
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleMarkDone(task)}
+                          disabled={!canWriteTasks}
+                          className="ui-hud-btn-soft h-7 ui-v1-radius-sm px-2.5 text-[11px]"
+                        >
+                          Mark Done
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {missedTasks.length === 0 && (
+                    <p className="text-xs text-[color:var(--hud-muted)]">
+                      No overdue tasks right now.
+                    </p>
+                  )}
+                </div>
+              </section>
+            </div>
           </div>
-          <div className="mt-2 flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              data-testid="daily-review-carryover"
-              onClick={runCarryOver}
-              disabled={!canWriteTasks}
-              className="ui-hud-btn-accent h-8 rounded-[10px] px-3 text-[11px]"
-            >
-              Carry Open Tasks to Tomorrow
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowReview(false)}
-              className="ui-hud-btn h-8 rounded-[10px] px-3 text-[11px] opacity-85"
-            >
-              Close Review
-            </Button>
+        )}
+
+        {!isCollapsed && showReview && (
+          <div className="ui-hud-section mt-3 ui-v1-radius-sm p-3">
+            <div className="flex flex-wrap items-center gap-2 text-[12px] text-[color:var(--hud-text)]">
+              <span className="inline-flex items-center gap-1">
+                <Clock3 className="size-3.5" />
+                Today: {reviewSummary.total}
+              </span>
+              <Badge className="ui-status-success rounded-full px-2 text-[10px]">
+                Done {reviewSummary.completed}
+              </Badge>
+              <Badge className="ui-status-warning rounded-full px-2 text-[10px]">
+                Open {reviewSummary.remaining}
+              </Badge>
+              <Badge className="ui-status-danger rounded-full px-2 text-[10px]">
+                Overdue {reviewSummary.overdueCount}
+              </Badge>
+              <Badge className="ui-status-info rounded-full px-2 text-[10px]">
+                Tomorrow starts {minutesToTime(workStartMinutes)}
+              </Badge>
+            </div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div
+                data-testid="daily-execution-reliability"
+                className="ui-hud-row ui-v1-radius-sm px-3 py-2"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                  Execution reliability (7d)
+                </p>
+                <div className="mt-1 flex items-center gap-2">
+                  <Badge
+                    className={`rounded-full px-2 text-[10px] ${
+                      weeklyExecutionInsights.reliabilityScore === null
+                        ? 'ui-status-info'
+                        : weeklyExecutionInsights.reliabilityScore >= 75
+                          ? 'ui-status-success'
+                          : weeklyExecutionInsights.reliabilityScore >= 50
+                            ? 'ui-status-warning'
+                            : 'ui-status-danger'
+                    }`}
+                  >
+                    {weeklyExecutionInsights.reliabilityScore === null
+                      ? 'n/a'
+                      : `${weeklyExecutionInsights.reliabilityScore}%`}
+                  </Badge>
+                  <p className="text-[11px] text-[color:var(--hud-muted)]">
+                    Completed {weeklyExecutionInsights.completedCount}/
+                    {weeklyExecutionInsights.scheduledCount} scheduled tasks
+                  </p>
+                </div>
+                <p className="mt-1 text-[11px] text-[color:var(--hud-muted)]">
+                  On-track {weeklyExecutionInsights.onTrackCount} | Overrun{' '}
+                  {weeklyExecutionInsights.overrunCount} | Underrun{' '}
+                  {weeklyExecutionInsights.underrunCount}
+                </p>
+              </div>
+              <div
+                data-testid="daily-drift-analytics"
+                className="ui-hud-row ui-v1-radius-sm px-3 py-2"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                  Drift analytics
+                </p>
+                {!executionModeEnabled ? (
+                  <p className="mt-1 text-[11px] text-[color:var(--hud-muted)]">
+                    Enable Execution mode in settings to track runtime drift trends.
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-1 text-[12px] font-semibold text-[color:var(--hud-text)]">
+                      Avg drift: {formatSignedMinutes(weeklyExecutionInsights.averageDriftMinutes)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-[color:var(--hud-muted)]">
+                      {weeklyExecutionInsights.topDriftWindow
+                        ? `Peak overrun window: ${weeklyExecutionInsights.topDriftWindow.label} (${formatSignedMinutes(
+                            weeklyExecutionInsights.topDriftWindow.averageDriftMinutes
+                          )})`
+                        : 'No positive drift window detected in the current 7-day range.'}
+                    </p>
+                    <p
+                      data-testid="daily-overrun-heatmap"
+                      className="mt-1 text-[11px] text-[color:var(--hud-muted)]"
+                    >
+                      {weeklyExecutionForecast.overrunHeatmap.length > 0
+                        ? `Overrun heatmap: ${weeklyExecutionForecast.overrunHeatmap[0].label} (${weeklyExecutionForecast.overrunHeatmap[0].overrunCount} overruns, avg +${Math.max(
+                            1,
+                            Math.round(
+                              weeklyExecutionForecast.overrunHeatmap[0].averageOverrunMinutes
+                            )
+                          )}m)`
+                        : 'Overrun heatmap needs more completed tasks to calibrate.'}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="mt-2 flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                data-testid="daily-review-carryover"
+                onClick={runCarryOver}
+                disabled={!canWriteTasks}
+                className="ui-hud-btn-accent h-8 ui-v1-radius-sm px-3 text-[11px]"
+              >
+                Carry Open Tasks to Tomorrow
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowReview(false)}
+                className="ui-hud-btn h-8 ui-v1-radius-sm px-3 text-[11px] opacity-85"
+              >
+                Close Review
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -1021,4 +1216,27 @@ function formatTaskTime(startDateTime: string): string {
     minute: '2-digit',
     hour12: false,
   });
+}
+
+function formatMinutes(totalMinutes: number): string {
+  const normalized = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
+
+function formatSignedMinutes(totalMinutes: number | null): string {
+  if (totalMinutes === null || !Number.isFinite(totalMinutes)) return 'n/a';
+  const rounded = Math.round(totalMinutes);
+  if (rounded === 0) return '0m';
+  const sign = rounded > 0 ? '+' : '-';
+  return `${sign}${Math.abs(rounded)}m`;
+}
+
+function formatDayKeyLabel(dayKey: string): string {
+  const date = new Date(`${dayKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dayKey;
+  return date.toLocaleDateString([], { weekday: 'short' });
 }

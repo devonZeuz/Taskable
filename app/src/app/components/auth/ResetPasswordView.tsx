@@ -37,7 +37,7 @@ export default function ResetPasswordView() {
       title="Set a new password"
       description="Paste your reset token and choose a strong password."
       heroLead="Secure your"
-      heroTitle="Taskable"
+      heroTitle="Tareva"
       heroSubtitle="Set a new password and continue with the same account and workspace."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-reset-form">

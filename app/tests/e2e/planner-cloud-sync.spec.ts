@@ -34,12 +34,28 @@ interface CloudSyncTestHookState {
   tokenAvailable: boolean;
 }
 
+async function dismissTutorialIfVisible(page: Page) {
+  const tutorialModal = page.getByTestId('onboarding-tutorial-modal');
+  const isVisible = await tutorialModal.isVisible().catch(() => false);
+  if (!isVisible) return;
+
+  const skipByTestId = page.getByTestId('onboarding-tutorial-skip').first();
+  const hasSkipTestId = await skipByTestId.isVisible().catch(() => false);
+  if (hasSkipTestId) {
+    await skipByTestId.click({ force: true });
+  } else {
+    await page.getByRole('button', { name: 'Skip' }).first().click({ force: true });
+  }
+
+  await expect(tutorialModal).toBeHidden();
+}
+
 async function registerCloudUser(
   request: import('@playwright/test').APIRequestContext
 ): Promise<CloudSessionSeed> {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const password = 'TaskableE2E#123';
-  const email = `cloud-e2e-${suffix}@taskable.test`;
+  const password = 'TarevaE2E#123';
+  const email = `cloud-e2e-${suffix}@Tareva.test`;
   const response = await request.post(`${API_URL}/api/auth/register`, {
     data: {
       name: `Cloud E2E ${suffix}`,
@@ -109,6 +125,7 @@ async function createSeededPage(browser: Browser, seed: CloudSessionSeed): Promi
       orgId: seed.orgId,
     });
   await expect(page.getByTestId('add-task-trigger').first()).toBeVisible();
+  await dismissTutorialIfVisible(page);
   return { context, page };
 }
 

@@ -2,7 +2,11 @@ import { expect, test } from '@playwright/test';
 import { bootstrapLocalMode } from './storageBootstrap';
 
 async function openTaskEditor(page: import('@playwright/test').Page, taskTitle: string) {
-  await page.locator(`[data-task-title="${taskTitle}"] h3`).first().click();
+  const title = page.locator(`[data-task-title="${taskTitle}"] h3`).first();
+  await title.scrollIntoViewIfNeeded();
+  await title.evaluate((node) => {
+    (node as HTMLElement).click();
+  });
   await expect(page.getByTestId('task-dialog-form')).toBeVisible();
 }
 
@@ -90,6 +94,7 @@ test('quick actions hub marks running task done', async ({ page }) => {
 
 test('moves a scheduled task to inbox', async ({ page }) => {
   await openTaskEditor(page, 'Germany Invoices');
+  await page.getByRole('button', { name: 'Advanced options' }).click();
   await page.getByTestId('schedule-later-toggle').click();
   await page.getByTestId('update-task-submit').click();
 
@@ -120,17 +125,23 @@ test('filters team view by unassigned member bucket', async ({ page }) => {
   await expect(page.locator('[data-task-title="Germany Invoices"]')).toHaveCount(0);
 });
 
-test('auto-places inbox task from Daily Planning panel', async ({ page }) => {
+test('keeps inbox queue in sidebar only', async ({ page }) => {
   await page.getByTestId('add-task-trigger').first().click();
   await page.getByLabel('Task Title').fill('Auto Place E2E');
+  await page.getByRole('button', { name: 'Advanced options' }).click();
   await page.getByTestId('schedule-later-toggle').click();
   await page.getByTestId('create-task-submit').click();
 
   const planningPanel = page.getByTestId('daily-planning-panel');
-  const triageCard = planningPanel.locator('div').filter({ hasText: 'Auto Place E2E' }).first();
-  await triageCard.getByRole('button', { name: 'Auto-place' }).click();
+  const collapseToggle = planningPanel.getByTestId('daily-planning-collapse-toggle');
+  if ((await collapseToggle.textContent())?.includes('Expand')) {
+    await collapseToggle.click();
+  }
+  await expect(planningPanel).not.toContainText('Inbox Queue');
 
-  await expect(page.locator('[data-task-title="Auto Place E2E"]')).toBeVisible();
+  const sidebarInbox = page.locator('[data-testid="inbox-panel"]').filter({ hasText: 'Inbox' });
+  await expect(sidebarInbox).toBeVisible();
+  await expect(sidebarInbox.locator('[data-task-title="Auto Place E2E"]')).toBeVisible();
 });
 
 test('supports undo and redo keyboard shortcuts', async ({ page }) => {

@@ -4,17 +4,17 @@ const { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage } = require('electr
 const { startStaticServer } = require('./localServer.cjs');
 const { readDesktopState, writeDesktopState, defaultDesktopState } = require('./store.cjs');
 
-const APP_PROTOCOL = 'taskable';
+const APP_PROTOCOL = 'tareva';
 const DEFAULT_DEV_SERVER_URL = 'http://localhost:5173';
 const PRELOAD_PATH = path.join(__dirname, 'preload.cjs');
 const TRAY_ICON_PATH = path.join(__dirname, 'assets', 'tray.png');
 
-const isDev = process.env.TASKABLE_DESKTOP_DEV === '1';
-const devServerUrl = process.env.TASKABLE_DESKTOP_DEV_SERVER_URL || DEFAULT_DEV_SERVER_URL;
+const isDev = process.env.TAREVA_DESKTOP_DEV === '1';
+const devServerUrl = process.env.TAREVA_DESKTOP_DEV_SERVER_URL || DEFAULT_DEV_SERVER_URL;
 
 if (isDev) {
   try {
-    app.setPath('userData', path.join(app.getPath('appData'), 'Taskable-dev-shell'));
+    app.setPath('userData', path.join(app.getPath('appData'), 'Tareva-dev-shell'));
   } catch {
     // Ignore userData overrides when unavailable.
   }
@@ -112,7 +112,7 @@ function refreshTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Open Taskable',
+      label: 'Open Tareva',
       click: () => {
         focusMainWindow();
       },
@@ -133,7 +133,7 @@ function createTray() {
   if (tray) return;
 
   tray = new Tray(getTrayImage());
-  tray.setToolTip('Taskable');
+  tray.setToolTip('Tareva');
   tray.on('double-click', () => {
     focusMainWindow();
   });

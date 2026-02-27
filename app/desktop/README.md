@@ -1,6 +1,6 @@
-# Taskable Desktop Shell (Electron v1)
+# Tareva Desktop Shell (Electron v1)
 
-This folder contains a **thin desktop shell** over the existing Taskable React app.
+This folder contains a **thin desktop shell** over the existing Tareva React app.
 
 - Renderer: existing web app routes (`/` entry gate, `/planner`, `/team`, `/compact`, auth routes)
 - Desktop-only responsibilities:
@@ -44,14 +44,14 @@ Desktop hardening checklist: `desktop/DESKTOP_SECURITY.md`
 
 - Toggle Compact
 - Always on top (checkbox)
-- Open Taskable
+- Open Tareva
 - Quit
 
 ## Deep-link protocol
 
 Windows protocol support is registered for:
 
-- `taskable://task/<taskId>`
+- `Tareva://task/<taskId>`
 
 This focuses the main window and opens the full editor flow through the entry gate to
 `/planner?taskId=<taskId>`.
@@ -73,7 +73,7 @@ From `app/`:
 
 Installer output:
 
-- `release/Taskable-Setup-<version>.exe`
+- `release/Tareva-Setup-<version>.exe`
 
 ## Manual QA checklist (desktop shell)
 
@@ -90,5 +90,5 @@ Installer output:
 ## Future placeholders (not implemented in v1)
 
 - Auto update (`electron-updater`)
-- Code signing
+- Code signing pipeline runbook: `desktop/CODE_SIGNING.md`
 - macOS notarization

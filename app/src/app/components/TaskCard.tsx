@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { useTeamMembers } from '../context/TeamMembersContext';
 import { useWorkday } from '../context/WorkdayContext';
 import { useCloudSync } from '../context/CloudSyncContext';
+import { useUserPreferences } from '../context/UserPreferencesContext';
 import { buildEffectiveMembers } from '../services/memberDirectory';
 import { combineDayAndTime, getDayKeyFromDateTime, minutesToTime } from '../services/scheduling';
 import {
@@ -103,6 +104,9 @@ export default function TaskCard({
     claimPresenceLock,
   } = useCloudSync();
   const { workday } = useWorkday();
+  const {
+    preferences: { uiDensity },
+  } = useUserPreferences();
   const useCloudMembers = cloudEnabled && Boolean(cloudToken && activeOrgId);
   const members = useMemo(
     () => buildEffectiveMembers(localMembers, cloudMembers, useCloudMembers),
@@ -165,18 +169,24 @@ export default function TaskCard({
   const isTiny = !isUltraTiny && (widthBasis < 210 || heightBasis < 148);
   const isCompact = !isUltraTiny && (widthBasis < 280 || heightBasis < 172);
   const sizeRatio = Math.min(widthBasis / 230, heightBasis / 168);
-  const titleSize = isMicro
+  const densityScale = uiDensity === 'compact' ? 0.9 : 1;
+  const baseTitleSize = isMicro
     ? 10
     : isUltraTiny
       ? clamp(Math.round(13 * Math.max(widthBasis / 130, heightBasis / 120)), 11, 14)
       : isTiny
         ? clamp(Math.round(16 * sizeRatio + 7), 14, 20)
         : clamp(Math.round(28 * sizeRatio), 18, 34);
-  const footerSize = isUltraTiny ? 10 : clamp(Math.round(14 * sizeRatio), 11, 15);
-  const doneSize = isUltraTiny ? 10 : clamp(Math.round(15 * sizeRatio), 12, 17);
+  const titleSize = clamp(Math.round(baseTitleSize * densityScale), 10, 34);
+  const baseFooterSize = isUltraTiny ? 10 : clamp(Math.round(14 * sizeRatio), 11, 15);
+  const footerSize = clamp(Math.round(baseFooterSize * densityScale), 10, 15);
+  const baseDoneSize = isUltraTiny ? 10 : clamp(Math.round(15 * sizeRatio), 12, 17);
+  const doneSize = clamp(Math.round(baseDoneSize * densityScale), 10, 17);
   const subtaskScale = Math.min(widthBasis / 220, heightBasis / 160);
-  const subtaskFontSize = isUltraTiny ? 10 : clamp(Math.round(14 * subtaskScale), 11, 17);
-  const subtaskMarkerSize = isUltraTiny ? 11 : clamp(Math.round(16 * subtaskScale), 12, 19);
+  const baseSubtaskFontSize = isUltraTiny ? 11 : clamp(Math.round(15 * subtaskScale), 12, 18);
+  const subtaskFontSize = clamp(Math.round(baseSubtaskFontSize * densityScale), 11, 18);
+  const baseSubtaskMarkerSize = isUltraTiny ? 12 : clamp(Math.round(17 * subtaskScale), 14, 20);
+  const subtaskMarkerSize = clamp(Math.round(baseSubtaskMarkerSize * densityScale), 12, 20);
   const useColumnFooter = widthBasis < 150 || isMicro;
   const showVerticalTime =
     hasStartTime && !isBlockTask && (task.durationMinutes < 60 || isTiny || isUltraTiny);
@@ -226,22 +236,95 @@ export default function TaskCard({
   };
   const subtaskSlots = isUltraTiny
     ? 0
-    : heightBasis < 120 || widthBasis < 140
+    : heightBasis < 188 || widthBasis < 228
       ? 1
-      : heightBasis < 156 || widthBasis < 210
+      : heightBasis < 242 || widthBasis < 294
         ? 2
         : 3;
+  const isComplexTask = task.type === 'large';
+  const forceComplexChecklistLayout =
+    isComplexTask &&
+    !isBlockTask &&
+    !isMicro &&
+    !isUltraTiny &&
+    widthBasis >= 250 &&
+    heightBasis >= 164;
+  const isPaused = executionStatus === 'paused';
   const primaryActionLabel = isCompletedExecution ? 'Reopen' : isRunning ? 'Pause' : 'Start';
   const primaryActionIcon = isCompletedExecution ? RotateCcw : isRunning ? Pause : Play;
   const PrimaryActionIcon = primaryActionIcon;
   const visibleSubtasks =
-    !isBlockTask && task.type === 'large' && task.subtasks.length > 0
-      ? task.subtasks.slice(0, subtaskSlots)
+    !isBlockTask && isComplexTask && task.subtasks.length > 0
+      ? task.subtasks.slice(0, forceComplexChecklistLayout ? 3 : subtaskSlots)
       : [];
   const hiddenSubtasksCount = Math.max(0, task.subtasks.length - visibleSubtasks.length);
+  const completedSubtasksCount = isComplexTask
+    ? task.subtasks.filter((subtask) => subtask.completed).length
+    : 0;
+  const complexProgressRatio =
+    isComplexTask && task.subtasks.length > 0
+      ? completedSubtasksCount / task.subtasks.length
+      : isCompletedExecution
+        ? 1
+        : isRunning
+          ? 0.3
+          : 0;
+  const showComplexCardLayout = forceComplexChecklistLayout;
+  const showComplexSubtaskSummary = showComplexCardLayout && task.subtasks.length > 0;
+  const showComplexSubtaskList = showComplexCardLayout && visibleSubtasks.length > 0;
+  const showStandardSubtaskList = !showComplexCardLayout && visibleSubtasks.length > 0 && heightBasis >= 168;
+  const showStatusBadge =
+    !isPreview &&
+    !isMicro &&
+    ((isBlockTask && widthBasis >= 110 && heightBasis >= 150) ||
+      (!isBlockTask && widthBasis >= 176 && heightBasis >= 168));
+  const statusBadgeLabel = isCompletedExecution
+    ? 'Done'
+    : isRunning
+      ? 'Running'
+      : isPaused
+        ? 'Paused'
+        : task.status === 'inbox' || !task.startDateTime
+          ? 'Inbox'
+          : 'Scheduled';
+  const statusBadgeClassName = isCompletedExecution
+    ? 'ui-status-success'
+    : isRunning
+      ? 'ui-status-info'
+      : isPaused
+        ? 'ui-status-warning'
+        : 'ui-hud-btn';
+  const isComplexCompact = showComplexCardLayout && heightBasis < 214;
+  const complexTitleSize = isComplexCompact
+    ? clamp(Math.round(20 * sizeRatio), 16, 24)
+    : clamp(Math.round(30 * sizeRatio), 20, 36);
+  const complexSubtaskFontSize = isComplexCompact
+    ? clamp(Math.round(14 * sizeRatio), 12, 15)
+    : clamp(Math.round(14 * sizeRatio), 13, 16);
+  const complexSubtaskMarkerSize = isComplexCompact
+    ? clamp(Math.round(17 * sizeRatio), 14, 18)
+    : clamp(Math.round(18 * sizeRatio), 15, 20);
   const blockTitleLabel = (task.title || 'BLOCK').toUpperCase();
   const subtaskTextLineClamp = widthBasis < 190 || heightBasis < 150 ? 1 : 2;
-  const paddingClass = isMicro ? 'p-1.5' : isUltraTiny ? 'p-2' : isTiny ? 'p-3' : 'p-4';
+  const paddingClass = showComplexCardLayout
+    ? isComplexCompact
+      ? 'p-2.5'
+      : 'p-3'
+    : uiDensity === 'compact'
+      ? isMicro
+        ? 'p-1'
+        : isUltraTiny
+          ? 'p-1.5'
+          : isTiny
+            ? 'p-2.5'
+            : 'p-3'
+      : isMicro
+        ? 'p-1.5'
+        : isUltraTiny
+          ? 'p-2'
+          : isTiny
+            ? 'p-3'
+            : 'p-4';
   const showTopMeta = widthBasis >= 232 && heightBasis >= 152 && !isPreview;
   const requestTakeover = useCallback(() => {
     if (!isLockedByOther || !taskPresenceLock) return;
@@ -404,6 +487,22 @@ export default function TaskCard({
       }}
       exit={{ scale: 0.95, opacity: 0 }}
       whileHover={isPreview ? undefined : { scale: 1.012 }}
+      onMouseDown={(event) => {
+        if (!isInteractive) return;
+        if (!shouldOpenQuickActions(event.target)) return;
+        if (isConflictLocked) {
+          toast.error('Task has a sync conflict. Resolve it before moving.');
+          openConflictResolver(task.id);
+          return;
+        }
+        if (isLockedByOther) {
+          requestTakeover();
+          return;
+        }
+        if (writeBlocked) {
+          toast.error(`Role "${roleLabel}" is read-only in this workspace.`);
+        }
+      }}
       onClick={(event) => {
         if (!isInteractive || isDragging) return;
         if (isBlockTask) {
@@ -415,7 +514,7 @@ export default function TaskCard({
         if (!shouldOpenQuickActions(event.target)) return;
         onOpenQuickActions?.(task);
       }}
-      className={`group relative flex select-none flex-col overflow-hidden rounded-[14px] ${
+      className={`planner-task-card group relative flex select-none flex-col overflow-hidden ui-v1-radius-md ${
         isPreview ? 'cursor-default pointer-events-none' : 'cursor-move pointer-events-auto'
       } ${paddingClass} ${isSelectedTask ? 'ring-2 ring-[color:var(--hud-outline)]' : ''}`}
       style={{
@@ -445,6 +544,18 @@ export default function TaskCard({
             <div className="absolute left-1/2 top-1/2 h-10 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/35 opacity-0 transition-opacity group-hover:opacity-70" />
           </div>
         </>
+      )}
+
+      {showComplexCardLayout && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[7] h-[3px] overflow-hidden bg-black/25">
+          <span
+            className="block h-full rounded-r-sm transition-[width] duration-500 ease-out"
+            style={{
+              width: `${Math.max(0, Math.min(100, Math.round(complexProgressRatio * 100)))}%`,
+              backgroundColor: withAlpha(tone.buttonText, 0.86),
+            }}
+          />
+        </div>
       )}
 
       {showTopMeta && interactionLockLabel && (
@@ -549,51 +660,161 @@ export default function TaskCard({
         </div>
       )}
 
-      <div className={`${isUltraTiny ? 'mb-2' : 'mb-3'} flex min-h-0 flex-col gap-2`}>
-        <h3
-          data-no-smart-actions="true"
-          className={`min-w-0 font-bold leading-[0.98] tracking-[-0.03em] ${
-            isPreview ? '' : 'cursor-pointer'
-          }`}
-          style={{
-            color: tone.title,
-            textDecoration: isCompletedExecution ? 'line-through' : 'none',
-            fontSize: `${isBlockTask ? Math.max(12, titleSize - 2) : titleSize}px`,
-            display: isBlockTask ? 'block' : '-webkit-box',
-            WebkitLineClamp: isBlockTask
-              ? undefined
-              : isMicro
-                ? 2
-                : isUltraTiny
-                  ? 2
-                  : isTiny
-                    ? 2
-                    : 3,
-            WebkitBoxOrient: isBlockTask ? undefined : 'vertical',
-            overflow: 'hidden',
-            wordBreak: isBlockTask ? 'keep-all' : 'break-word',
-            whiteSpace: isBlockTask ? 'normal' : undefined,
-            textTransform: isBlockTask ? 'uppercase' : undefined,
-            writingMode: isBlockTask ? 'vertical-rl' : undefined,
-            textOrientation: isBlockTask ? 'upright' : undefined,
-            lineHeight: isBlockTask ? 1.05 : undefined,
-            letterSpacing: isBlockTask ? '0.1em' : undefined,
-            position: isBlockTask ? 'absolute' : undefined,
-            left: isBlockTask ? `${isUltraTiny ? 8 : 12}px` : undefined,
-            top: isBlockTask ? `${isUltraTiny ? 10 : 14}px` : undefined,
-            bottom: isBlockTask ? `${isUltraTiny ? 30 : 38}px` : undefined,
-            maxHeight: isBlockTask ? 'calc(100% - 48px)' : undefined,
-          }}
-          onClick={() => {
-            if (!isInteractive) return;
-            onEdit(task);
-          }}
-          title={task.title}
-        >
-          {isBlockTask ? blockTitleLabel : task.title}
-        </h3>
+      <div
+        className={`${isUltraTiny ? 'mb-2' : showComplexCardLayout ? 'mb-1.5' : 'mb-3'} flex min-h-0 flex-col ${
+          showComplexCardLayout ? 'gap-1' : 'gap-2'
+        } ${showComplexCardLayout ? 'flex-1' : ''}`}
+      >
+        {showStatusBadge && (
+          <div className={showComplexCardLayout ? 'h-[10px]' : 'h-[18px]'}>
+            <span
+              className={`pointer-events-none inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 ${
+                showComplexCardLayout ? 'text-[7px] leading-none' : 'text-[9px]'
+              } font-semibold uppercase tracking-[0.08em] opacity-0 transition-opacity group-hover:opacity-100 ${statusBadgeClassName}`}
+            >
+              <span
+                className={`size-1.5 rounded-full ${isRunning ? 'animate-pulse' : ''}`}
+                style={{ backgroundColor: 'currentColor' }}
+              />
+              {statusBadgeLabel}
+            </span>
+          </div>
+        )}
 
-        {visibleSubtasks.length > 0 && (
+        <div className={showComplexCardLayout ? 'min-h-0 min-w-0 flex h-full flex-col' : 'min-h-0 min-w-0'}>
+          <h3
+            data-no-smart-actions={isBlockTask ? 'true' : undefined}
+            className={`min-w-0 font-bold leading-[0.98] tracking-[-0.03em] ${
+              isPreview ? '' : 'cursor-pointer'
+            }`}
+            style={{
+              color: tone.title,
+              textDecoration: isCompletedExecution ? 'line-through' : 'none',
+              fontSize: `${isBlockTask ? Math.max(12, titleSize - 2) : showComplexCardLayout ? complexTitleSize : titleSize}px`,
+              display: isBlockTask ? 'block' : '-webkit-box',
+              WebkitLineClamp: isBlockTask
+                ? undefined
+                : showComplexCardLayout
+                  ? 1
+                  : isMicro
+                    ? 2
+                    : isUltraTiny
+                      ? 2
+                      : isTiny
+                        ? 2
+                        : 3,
+              WebkitBoxOrient: isBlockTask ? undefined : 'vertical',
+              overflow: 'hidden',
+              wordBreak: isBlockTask ? 'keep-all' : 'break-word',
+              whiteSpace: isBlockTask ? 'normal' : undefined,
+              textTransform: isBlockTask ? 'uppercase' : undefined,
+              writingMode: isBlockTask ? 'vertical-rl' : undefined,
+              textOrientation: isBlockTask ? 'upright' : undefined,
+              lineHeight: isBlockTask ? 1.05 : undefined,
+              letterSpacing: isBlockTask ? '0.1em' : undefined,
+              position: isBlockTask ? 'absolute' : undefined,
+              left: isBlockTask ? `${isUltraTiny ? 8 : 12}px` : undefined,
+              top: isBlockTask ? `${isUltraTiny ? 10 : 14}px` : undefined,
+              bottom: isBlockTask ? `${isUltraTiny ? 30 : 38}px` : undefined,
+              maxHeight: isBlockTask ? 'calc(100% - 48px)' : undefined,
+            }}
+            onClick={(event) => {
+              if (!isInteractive) return;
+              event.stopPropagation();
+              if (isBlockTask) {
+                onEdit(task);
+                return;
+              }
+              onEdit(task);
+            }}
+            title={task.title}
+          >
+            {isBlockTask ? blockTitleLabel : task.title}
+          </h3>
+
+          {showComplexSubtaskSummary && (
+            <div
+              className={`mt-0.5 flex min-h-0 w-full flex-col ${
+                isComplexCompact ? 'gap-0.5' : 'gap-1'
+              } pr-1 ${showComplexCardLayout ? 'flex-1 justify-center' : ''}`}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <p
+                  className={`truncate font-semibold tracking-[-0.01em] ${
+                    isComplexCompact ? 'text-[11px] leading-tight' : 'text-[12px]'
+                  }`}
+                  style={{ color: tone.body }}
+                >
+                  {task.subtasks.length} subtasks · {completedSubtasksCount}/{task.subtasks.length} done
+                </p>
+              </div>
+
+              {showComplexSubtaskList &&
+                visibleSubtasks.map((subtask) => (
+                  <button
+                    key={subtask.id}
+                    type="button"
+                    data-no-smart-actions="true"
+                    disabled={writeBlocked}
+                    onClick={() => {
+                      if (!isInteractive) return;
+                      if (blockWriteInCloud()) return;
+                      toggleSubtaskComplete(task.id, subtask.id);
+                    }}
+                    className={`flex w-full items-center justify-start ${
+                      isComplexCompact ? 'gap-1' : 'gap-1.5'
+                    } text-left disabled:cursor-not-allowed disabled:opacity-60`}
+                  >
+                    <span
+                      className="relative flex shrink-0 items-center justify-center rounded-full border-2"
+                      style={{
+                        borderColor: tone.body,
+                        width: `${complexSubtaskMarkerSize}px`,
+                        height: `${complexSubtaskMarkerSize}px`,
+                        backgroundColor: subtask.completed ? withAlpha(tone.body, 0.22) : 'transparent',
+                      }}
+                    >
+                      {subtask.completed && (
+                        <Check
+                          className="shrink-0"
+                          style={{
+                            color: tone.body,
+                            width: `${Math.max(10, Math.round(complexSubtaskMarkerSize * 0.62))}px`,
+                            height: `${Math.max(10, Math.round(complexSubtaskMarkerSize * 0.62))}px`,
+                          }}
+                        />
+                      )}
+                    </span>
+                    <span
+                      className="min-w-0 flex-1 overflow-hidden font-semibold leading-tight text-left"
+                      style={{
+                        color: tone.body,
+                        textDecoration: subtask.completed ? 'line-through' : 'none',
+                        fontSize: `${complexSubtaskFontSize}px`,
+                        lineHeight: isComplexCompact ? 1.12 : 1.15,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 1,
+                        WebkitBoxOrient: 'vertical',
+                      }}
+                    >
+                      {subtask.title}
+                    </span>
+                  </button>
+                ))}
+
+              {showComplexSubtaskList && hiddenSubtasksCount > 0 && (
+                <span
+                  className="pl-0.5 font-semibold"
+                  style={{ color: tone.body, fontSize: `${Math.max(10, complexSubtaskFontSize)}px` }}
+                >
+                  +{hiddenSubtasksCount} more
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {showStandardSubtaskList && (
           <div className="mt-1.5 flex w-full min-h-0 flex-col gap-1.5 pr-1">
             {visibleSubtasks.map((subtask) => (
               <button
@@ -666,13 +887,15 @@ export default function TaskCard({
           className={`mt-auto ${
             useColumnFooter
               ? 'flex w-full flex-col items-center gap-1'
+              : showComplexCardLayout
+                ? 'flex items-end justify-between gap-2'
               : 'flex items-end justify-between gap-3'
           }`}
         >
           <div
             className={`flex min-w-0 ${showVerticalTime ? (useColumnFooter ? 'flex-col items-center' : 'items-start gap-1') : 'items-center gap-2'}`}
           >
-            {!isCompact && !showVerticalTime && (
+            {!isCompact && !showVerticalTime && !showComplexCardLayout && (
               <Clock className="size-4 shrink-0" style={{ color: tone.body }} />
             )}
             {showVerticalTime ? (
@@ -689,8 +912,11 @@ export default function TaskCard({
               </div>
             ) : (
               <span
-                className="truncate font-bold leading-none tracking-[-0.02em]"
-                style={{ color: tone.body, fontSize: `${footerSize}px` }}
+                className="planner-task-meta truncate font-bold leading-none tracking-[-0.02em]"
+                style={{
+                  color: tone.body,
+                  fontSize: `${showComplexCardLayout ? Math.max(9, footerSize - 2) : footerSize}px`,
+                }}
                 title={timeLabel}
               >
                 {timeLabel}
@@ -725,9 +951,13 @@ export default function TaskCard({
               }
               startTask(task.id);
             }}
-            className={`rounded-[11px] ${
+            className={`ui-v1-radius-sm ${
               isMicro
                 ? 'h-7 w-7 p-0'
+                : showComplexCardLayout
+                  ? isComplexCompact
+                    ? 'h-7 min-w-[72px] px-2.5'
+                    : 'h-9 min-w-[92px] px-4'
                 : useColumnFooter
                   ? isUltraTiny
                     ? 'h-7 w-full px-1.5 text-center'
@@ -739,13 +969,17 @@ export default function TaskCard({
                       : 'h-10 min-w-[98px] px-5'
             } transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60`}
             style={{
-              backgroundColor: tone.buttonBg,
-              color: tone.buttonText,
+              backgroundColor: showComplexCardLayout ? withAlpha(tone.buttonText, 0.22) : tone.buttonBg,
+              color: showComplexCardLayout ? tone.title : tone.buttonText,
             }}
           >
             {isMicro ? (
               <span className="inline-flex items-center justify-center">
                 <PrimaryActionIcon className="size-3.5 shrink-0" />
+              </span>
+            ) : showComplexCardLayout ? (
+              <span className="font-bold leading-none tracking-[-0.02em]" style={{ fontSize: `${doneSize}px` }}>
+                {primaryActionLabel}
               </span>
             ) : useColumnFooter && isUltraTiny ? (
               <span

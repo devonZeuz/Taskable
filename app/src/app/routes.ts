@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, Navigate } from 'react-router';
 import Root from './components/Root';
 import RouteErrorBoundary from './components/RouteErrorBoundary';
 import AppEntryRoute from './components/auth/AppEntryRoute';
@@ -12,6 +12,10 @@ import ResetPasswordView from './components/auth/ResetPasswordView';
 
 function HydrationFallback() {
   return null;
+}
+
+function RootWelcomeRedirect() {
+  return createElement(Navigate, { to: '/welcome', replace: true });
 }
 
 const routeErrorElement = createElement(RouteErrorBoundary);
@@ -31,6 +35,11 @@ const loadCompactRoute = async () => {
   return { Component: module.default };
 };
 
+const loadAdminRoute = async () => {
+  const module = await import('./components/admin/AdminDashboard');
+  return { Component: module.default };
+};
+
 export const router = createBrowserRouter([
   {
     path: '/',
@@ -39,6 +48,12 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
+        Component: RootWelcomeRedirect,
+        errorElement: routeErrorElement,
+        HydrateFallback: HydrationFallback,
+      },
+      {
+        path: 'app',
         Component: AppEntryRoute,
         errorElement: routeErrorElement,
         HydrateFallback: HydrationFallback,
@@ -99,6 +114,12 @@ export const router = createBrowserRouter([
           {
             path: 'compact',
             lazy: loadCompactRoute,
+            errorElement: routeErrorElement,
+            HydrateFallback: HydrationFallback,
+          },
+          {
+            path: 'admin',
+            lazy: loadAdminRoute,
             errorElement: routeErrorElement,
             HydrateFallback: HydrationFallback,
           },

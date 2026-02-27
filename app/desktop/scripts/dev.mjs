@@ -8,7 +8,7 @@ const electronBinary = isWindows
   ? path.join(rootDir, 'node_modules', '.bin', 'electron.cmd')
   : path.join(rootDir, 'node_modules', '.bin', 'electron');
 
-const devServerUrl = process.env.TASKABLE_DESKTOP_DEV_SERVER_URL || 'http://localhost:5173';
+const devServerUrl = process.env.TAREVA_DESKTOP_DEV_SERVER_URL || 'http://localhost:5173';
 let viteProcess = null;
 let electronProcess = null;
 
@@ -89,8 +89,8 @@ electronProcess = spawn(electronBinary, ['.'], {
   cwd: rootDir,
   stdio: 'inherit',
   env: sanitizeSpawnEnv({
-    TASKABLE_DESKTOP_DEV: '1',
-    TASKABLE_DESKTOP_DEV_SERVER_URL: devServerUrl,
+    TAREVA_DESKTOP_DEV: '1',
+    TAREVA_DESKTOP_DEV_SERVER_URL: devServerUrl,
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
   }),
   shell: isWindows,

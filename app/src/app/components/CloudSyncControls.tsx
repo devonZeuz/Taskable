@@ -93,6 +93,7 @@ export default function CloudSyncControls() {
   >({});
   const [conflictAuditEvents, setConflictAuditEvents] = useState<ConflictAuditEvent[]>([]);
   const [loadingConflictAudit, setLoadingConflictAudit] = useState(false);
+  const [batchResolvingAction, setBatchResolvingAction] = useState<'mine' | 'theirs' | null>(null);
 
   const parseMfaChallenge = (err: unknown) => {
     if (!(err instanceof CloudRequestError) || err.status !== 401) return null;
@@ -240,6 +241,41 @@ export default function CloudSyncControls() {
     }
   };
 
+  const handleBatchConflictAction = async (action: 'mine' | 'theirs') => {
+    const targetConflictIds = conflicts.map((conflict) => conflict.taskId);
+    if (targetConflictIds.length === 0) return;
+
+    setBatchResolvingAction(action);
+    let resolvedCount = 0;
+    let failedCount = 0;
+
+    for (const taskId of targetConflictIds) {
+      try {
+        if (action === 'mine') {
+          await resolveConflictKeepMine(taskId);
+        } else {
+          await resolveConflictKeepTheirs(taskId);
+        }
+        resolvedCount += 1;
+      } catch {
+        failedCount += 1;
+      }
+    }
+
+    await fetchConflictAudit();
+    setActiveConflictId(null);
+    setBatchResolvingAction(null);
+
+    if (failedCount === 0) {
+      toast.success(`Resolved ${resolvedCount} conflict${resolvedCount === 1 ? '' : 's'}.`);
+      return;
+    }
+
+    toast.warning(
+      `Resolved ${resolvedCount} conflict${resolvedCount === 1 ? '' : 's'}, ${failedCount} failed.`
+    );
+  };
+
   const setAllMergeChoices = (taskId: string, choice: 'mine' | 'theirs') => {
     const conflict = conflicts.find((entry) => entry.taskId === taskId);
     if (!conflict) return;
@@ -263,7 +299,7 @@ export default function CloudSyncControls() {
 
   return (
     <>
-      <div className="desktop-no-drag w-full max-w-[340px] space-y-3 rounded-[10px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] p-3">
+      <div className="desktop-no-drag w-full max-w-[340px] space-y-3 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] p-3">
         {!token ? (
           <form className="space-y-3" onSubmit={handleAuthSubmit}>
             <div className="flex items-center justify-between">
@@ -520,6 +556,28 @@ export default function CloudSyncControls() {
                 <p className="text-xs font-semibold text-amber-200">
                   Sync conflicts ({conflicts.length})
                 </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[10px]"
+                    onClick={() => void handleBatchConflictAction('mine')}
+                    disabled={syncing || batchResolvingAction !== null}
+                  >
+                    {batchResolvingAction === 'mine' ? 'Resolving…' : 'Keep mine (all)'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[10px]"
+                    onClick={() => void handleBatchConflictAction('theirs')}
+                    disabled={syncing || batchResolvingAction !== null}
+                  >
+                    {batchResolvingAction === 'theirs' ? 'Resolving…' : 'Keep theirs (all)'}
+                  </Button>
+                </div>
                 {conflicts.slice(0, 4).map((conflict) => (
                   <div key={conflict.taskId} className="ui-alert-block rounded p-2">
                     <p className="truncate text-xs font-semibold text-amber-100">

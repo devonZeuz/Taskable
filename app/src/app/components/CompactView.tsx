@@ -38,6 +38,9 @@ const DAY_LABEL_WIDTH = 108;
 const DEFAULT_PX_PER_MINUTE = 1.65;
 const LANE_HEIGHT = 72;
 const LANE_GAP = 8;
+const LANE_STAGGER_OFFSET = 12;
+const TASK_TOP_PADDING = 8;
+const TASK_BOTTOM_PADDING = 14;
 
 interface CompactDay {
   key: string;
@@ -67,6 +70,7 @@ export default function CompactView() {
     isDesktopShell() && new URLSearchParams(location.search).get('desktopCompact') === '1';
   const laneHeight = LANE_HEIGHT;
   const laneGap = LANE_GAP;
+  const laneStaggerOffset = LANE_STAGGER_OFFSET;
 
   const isNarrow = viewportWidth > 0 && viewportWidth < NARROW_BREAKPOINT;
   const workdayMinutes = getWorkdayMinutes(workday);
@@ -149,6 +153,15 @@ export default function CompactView() {
     [pxPerMinute, workStartMinutes]
   );
 
+  const getTaskTop = useCallback(
+    (startMinutes: number, laneIndex: number) => {
+      const hourBandIndex = Math.floor((startMinutes - workStartMinutes) / 60);
+      const staggerOffset = (hourBandIndex + laneIndex) % 2 === 1 ? laneStaggerOffset : 0;
+      return TASK_TOP_PADDING + laneIndex * (laneHeight + laneGap) + staggerOffset;
+    },
+    [laneGap, laneHeight, laneStaggerOffset, workStartMinutes]
+  );
+
   const handleTimeAxisWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
     if (!event.shiftKey || event.ctrlKey) return;
 
@@ -203,6 +216,11 @@ export default function CompactView() {
     },
     [navigate, setPreference]
   );
+
+  useEffect(() => {
+    // Warm planner route chunks while compact is open to reduce "Open Full" latency.
+    void import('./PersonalView');
+  }, []);
 
   useEffect(() => {
     centeredOnNowRef.current = false;
@@ -273,11 +291,11 @@ export default function CompactView() {
       )}
 
       <div className="pointer-events-none absolute right-3 top-3 z-20">
-        <div className="desktop-no-drag pointer-events-auto flex items-center gap-2 rounded-[12px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)]/95 px-2 py-1.5 shadow-[0_12px_26px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+        <div className="desktop-no-drag pointer-events-auto flex items-center gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)]/95 px-2 py-1.5 ui-v1-elevation-2 backdrop-blur-sm">
           <Button
             type="button"
             size="sm"
-            className="desktop-no-drag h-8 rounded-[9px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-3 text-[11px] font-semibold text-[color:var(--hud-text)] hover:brightness-105"
+            className="desktop-no-drag h-8 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-3 text-[11px] font-semibold text-[color:var(--hud-text)] hover:brightness-105"
             onClick={() => openFullView()}
           >
             <ExternalLink className="mr-1.5 size-3.5" />
@@ -322,7 +340,14 @@ export default function CompactView() {
 
           {days.map((day) => {
             const layout = dayLayouts.get(day.key) ?? { positioned: [], laneCount: 1 };
-            const rowHeight = Math.max(88, 14 + layout.laneCount * (laneHeight + laneGap));
+            const rowHeight = Math.max(
+              88,
+              layout.positioned.reduce((maxBottom, { task, laneIndex }) => {
+                const interval = getTaskInterval(task);
+                const taskTop = getTaskTop(interval.startMinutes, laneIndex);
+                return Math.max(maxBottom, taskTop + laneHeight + TASK_BOTTOM_PADDING);
+              }, TASK_TOP_PADDING + laneHeight + TASK_BOTTOM_PADDING)
+            );
             const isTodayVisible = day.isToday;
             const now = new Date(nowTimestamp);
             const nowMinutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
@@ -381,7 +406,7 @@ export default function CompactView() {
                       84,
                       (interval.endMinutes - interval.startMinutes) * pxPerMinute - 8
                     );
-                    const top = 8 + laneIndex * (laneHeight + laneGap);
+                    const top = getTaskTop(interval.startMinutes, laneIndex);
                     return (
                       <CompactTaskBlock
                         key={task.id}
@@ -431,29 +456,30 @@ function CompactTaskBlock({
       data-testid={`compact-task-card-${task.id}`}
       data-task-id={task.id}
       data-task-title={task.title}
-      className="compact-token-task-card group absolute rounded-[11px] border border-[color:var(--board-line)] px-2.5 py-2 shadow-[0_10px_22px_rgba(0,0,0,0.3)]"
+      className="compact-token-task-card group absolute ui-v1-radius-sm border border-[color:var(--board-line)] px-2.5 py-2 ui-v1-elevation-2"
       style={{
         left: `${left}px`,
         top: `${top}px`,
         width: `${width}px`,
-        minHeight: `${laneHeight}px`,
+        height: `${laneHeight}px`,
         backgroundColor: surface,
         textRendering: 'geometricPrecision',
       }}
       onClick={() => onOpenFull(task.id)}
     >
-      <div className="flex items-start justify-between gap-2">
-        <p
-          className="line-clamp-2 text-[13px] font-bold leading-[1.08] tracking-[-0.02em]"
-          style={{ color: title }}
-        >
-          {task.title}
+      <div className="flex h-full flex-col">
+        <div className="flex items-start justify-between gap-2">
+          <p
+            className="line-clamp-2 text-[13px] font-bold leading-[1.08] tracking-[-0.02em]"
+            style={{ color: title }}
+          >
+            {task.title}
+          </p>
+        </div>
+        <p className="mt-auto truncate text-[11px] font-semibold" style={{ color: body }}>
+          {timeLabel}
         </p>
       </div>
-
-      <p className="mt-1 truncate text-[11px] font-semibold" style={{ color: body }}>
-        {timeLabel}
-      </p>
     </div>
   );
 }

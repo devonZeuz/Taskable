@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { Link } from 'react-router';
 import CloudSyncControls from '../../CloudSyncControls';
 import { type CloudSyncIssue, useCloudSync } from '../../../context/CloudSyncContext';
 import { cloudRequest } from '../../../services/cloudApi';
+import { resolveAdminDashboardFlag } from '../../../flags';
 import { Switch } from '../../ui/switch';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
@@ -124,7 +126,9 @@ export default function IntegrationSettings() {
     () => orgs.find((org) => org.id === activeOrgId) ?? null,
     [activeOrgId, orgs]
   );
+  const adminDashboardEnabled = resolveAdminDashboardFlag();
   const canManageIntegrations = activeOrg?.role === 'owner' || activeOrg?.role === 'admin';
+  const canOpenAdminDashboard = adminDashboardEnabled && activeOrg?.role === 'owner';
 
   useEffect(() => {
     setPrefs(loadIntegrationPrefs(activeOrgId));
@@ -235,7 +239,7 @@ export default function IntegrationSettings() {
 
   return (
     <div className="space-y-4">
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Sync Status
         </p>
@@ -270,16 +274,16 @@ export default function IntegrationSettings() {
           </p>
         </div>
         {conflicts.length > 0 && (
-          <div className="ui-status-warning mt-3 rounded-[10px] px-3 py-2 text-xs">
+          <div className="ui-status-warning mt-3 ui-v1-radius-sm px-3 py-2 text-xs">
             {conflicts.length} sync conflict{conflicts.length === 1 ? '' : 's'} pending. Open Cloud
             control and resolve conflict entries.
           </div>
         )}
         {error && (
-          <div className="ui-status-danger mt-3 rounded-[10px] px-3 py-2 text-xs">{error}</div>
+          <div className="ui-status-danger mt-3 ui-v1-radius-sm px-3 py-2 text-xs">{error}</div>
         )}
         {lastSyncIssue && (
-          <div className="ui-alert-block mt-3 space-y-2 rounded-[10px] px-3 py-2">
+          <div className="ui-alert-block mt-3 space-y-2 ui-v1-radius-sm px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.08em]">
               Latest Sync Issue
             </p>
@@ -328,7 +332,7 @@ export default function IntegrationSettings() {
         )}
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Cloud Workspace
         </p>
@@ -352,9 +356,26 @@ export default function IntegrationSettings() {
         <div className="mt-3">
           <CloudSyncControls />
         </div>
+        {canOpenAdminDashboard && (
+          <div className="mt-3 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+            <p className="text-[11px] uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+              Owner Tools
+            </p>
+            <p className="mt-1 text-xs text-[color:var(--hud-muted)]">
+              Open owner-only operations dashboard for users, conflicts, sync, and email health.
+            </p>
+            <Link
+              to="/admin"
+              data-testid="settings-admin-link"
+              className="mt-2 inline-flex h-8 items-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 text-xs font-semibold text-[color:var(--hud-text)] hover:bg-[var(--hud-surface-strong)]"
+            >
+              Admin (Owner)
+            </Link>
+          </div>
+        )}
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           External Integrations
         </p>
@@ -389,7 +410,7 @@ export default function IntegrationSettings() {
         )}
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
             Integration Audit Feed
@@ -408,7 +429,7 @@ export default function IntegrationSettings() {
           <label className="space-y-1 text-[11px] text-[color:var(--hud-muted)]">
             Action
             <select
-              className="h-8 w-full rounded-[8px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] px-2 text-[12px] text-[color:var(--hud-text)]"
+              className="h-8 w-full ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] px-2 text-[12px] text-[color:var(--hud-text)]"
               value={activityAction}
               onChange={(event) => setActivityAction(event.target.value)}
             >
@@ -493,7 +514,7 @@ export default function IntegrationSettings() {
         ) : events.length === 0 ? (
           <p className="mt-2 text-xs text-[color:var(--hud-muted)]">No activity yet.</p>
         ) : (
-          <div className="mt-3 max-h-[260px] space-y-1 overflow-auto ui-hud-row rounded-[10px] p-2">
+          <div className="mt-3 max-h-[260px] space-y-1 overflow-auto ui-hud-row ui-v1-radius-sm p-2">
             {events.slice(0, 80).map((event) => (
               <div
                 key={event.id}
@@ -534,7 +555,7 @@ function IntegrationRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between ui-hud-row rounded-[10px] px-3 py-2">
+    <div className="flex items-center justify-between ui-hud-row ui-v1-radius-sm px-3 py-2">
       <div className="pr-3">
         <p className="text-sm font-semibold text-[color:var(--hud-text)]">{title}</p>
         <p className="text-[11px] text-[color:var(--hud-muted)]">{subtitle}</p>

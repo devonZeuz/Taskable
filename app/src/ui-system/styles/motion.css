@@ -1,0 +1,34 @@
+.ui-system-v1 {
+  --ui-v1-motion-instant: 80ms;
+  --ui-v1-motion-fast: 140ms;
+  --ui-v1-motion-medium: 220ms;
+  --ui-v1-motion-slow: 320ms;
+
+  --ui-v1-motion-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ui-v1-motion-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ui-v1-motion-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  --ui-v1-motion-compact: 120ms;
+  --ui-v1-motion-compact-ease: cubic-bezier(0.24, 0, 0.2, 1);
+}
+
+.ui-system-v1 .ui-v1-motion-standard {
+  transition-duration: var(--ui-v1-motion-medium);
+  transition-timing-function: var(--ui-v1-motion-standard);
+}
+
+.ui-system-v1 .ui-v1-motion-fast {
+  transition-duration: var(--ui-v1-motion-fast);
+  transition-timing-function: var(--ui-v1-motion-standard);
+}
+
+.ui-system-v1 .ui-v1-motion-compact {
+  transition-duration: var(--ui-v1-motion-compact);
+  transition-timing-function: var(--ui-v1-motion-compact-ease);
+}
+
+:root[data-reduce-motion='true'] .ui-system-v1 .ui-v1-motion-standard,
+:root[data-reduce-motion='true'] .ui-system-v1 .ui-v1-motion-fast,
+:root[data-reduce-motion='true'] .ui-system-v1 .ui-v1-motion-compact {
+  transition-duration: 0.01ms;
+}

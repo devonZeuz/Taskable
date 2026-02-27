@@ -33,7 +33,7 @@ export default function SettingsNav({ sections, activeSection, onSelect }: Setti
             type="button"
             variant="ghost"
             onClick={() => onSelect(section.key)}
-            className={`h-auto w-full flex-col items-start justify-start gap-1 rounded-[11px] px-3.5 py-3 text-left whitespace-normal ${
+            className={`h-auto w-full flex-col items-start justify-start gap-1 ui-v1-radius-sm px-3.5 py-3 text-left whitespace-normal ${
               isActive
                 ? 'border border-[color:var(--hud-accent-soft)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)]'
                 : 'border border-transparent text-[color:var(--hud-text)] opacity-80 hover:border-[color:var(--hud-border)] hover:bg-[var(--hud-surface-strong)] hover:opacity-100'

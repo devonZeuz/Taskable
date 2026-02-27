@@ -88,7 +88,7 @@ function buildDiagnostics(error: unknown): ErrorDiagnostics {
   const fallbackMessage =
     error instanceof Error && error.message
       ? error.message
-      : 'Taskable could not load this view. Try retrying or reloading.';
+      : 'Tareva could not load this view. Try retrying or reloading.';
 
   return {
     title: 'Unexpected application error',
@@ -131,7 +131,7 @@ export default function RouteErrorBoundary() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-[0.2em] text-[color:var(--hud-muted)]">
-              Taskable
+              Tareva
             </p>
             <h1 className="mt-1 text-2xl font-semibold">{diagnostics.title}</h1>
             <p className="mt-2 text-sm text-[color:var(--hud-muted)]">{diagnostics.message}</p>

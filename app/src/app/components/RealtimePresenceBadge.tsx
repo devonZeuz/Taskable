@@ -47,7 +47,7 @@ export default function RealtimePresenceBadge({ compact = false }: { compact?: b
   return (
     <div
       data-testid="realtime-presence-badge"
-      className="ui-hud-shell inline-flex h-9 items-center gap-2 rounded-[11px] px-3 text-[11px] shadow-none"
+      className="planner-control ui-hud-shell inline-flex h-9 items-center gap-2 ui-v1-radius-sm px-3 text-[11px] shadow-none"
       title={otherUsers.length > 0 ? `Active: ${otherUsers.join(', ')}` : 'No active collaborators'}
     >
       <span className={`inline-flex items-center gap-1 font-semibold ${statusTone}`}>

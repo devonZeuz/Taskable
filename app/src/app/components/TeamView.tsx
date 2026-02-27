@@ -6,10 +6,21 @@ import {
   useState,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
+import {
+  ChartColumnIncreasing,
+  Inbox,
+  Minus,
+  NotebookPen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+} from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { useTasks, Task } from '../context/TaskContext';
 import AddTaskDialog from './AddTaskDialog';
 import InboxPanel from './InboxPanel';
+import CapacityBar from './CapacityBar';
+import TodayNotePanel from './TodayNotePanel';
 import DayColumn from './DayColumn';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
@@ -37,8 +48,11 @@ import {
   getMinutesSinceMidnightInTimeZone,
   getNowAxisOffsetPx,
 } from '../services/timeAxisNow';
+import { getNextTimelineZoom } from '../services/timelineZoom';
+import PlannerTopRail from './PlannerTopRail';
+import { resolveExecutionModeV1Flag, resolveLayoutV1Flag } from '../flags';
+import { desktopToggleCompact, isDesktopShell } from '../services/desktopShell';
 
-const TODAY_REVEAL_BUFFER_ROWS = 0.9;
 const TEAM_NOW_SNAP_SESSION_KEY = 'taskable:now-snap:team';
 
 export default function TeamView() {
@@ -46,9 +60,18 @@ export default function TeamView() {
   const navigate = useNavigate();
   const { tasks } = useTasks();
   const { workday } = useWorkday();
+  const { preferences, setPreference } = useUserPreferences();
   const {
-    preferences: { slotMinutes, recallDays },
-  } = useUserPreferences();
+    slotMinutes,
+    recallDays,
+    timelineZoom,
+    sidebarCollapsed,
+    sidebarCollapsePreferenceSet,
+    executionModeEnabled,
+  } = preferences;
+  const layoutV1Enabled = resolveLayoutV1Flag();
+  const executionModeV1Enabled = resolveExecutionModeV1Flag();
+  const executionModeActive = executionModeV1Enabled && executionModeEnabled;
   const { members: localMembers } = useTeamMembers();
   const {
     enabled: cloudEnabled,
@@ -64,18 +87,30 @@ export default function TeamView() {
   const [selectedMember, setSelectedMember] = useState('all');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [activeHubTaskId, setActiveHubTaskId] = useState<string | null>(null);
+  const [sidebarPanel, setSidebarPanel] = useState<'inbox' | 'capacity' | 'notes' | null>(null);
   const [showBackToToday, setShowBackToToday] = useState(false);
+  const [showJumpToNow, setShowJumpToNow] = useState(false);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
   const todayRowRef = useRef<HTMLDivElement | null>(null);
   const initialScrollDoneRef = useRef(false);
   const hasUserScrolledRef = useRef(false);
   const hasAutoNowSnapRef = useRef(false);
-  const hourWidth = 216;
-  const hourGap = 18;
+  const zoomFactor = timelineZoom / 100;
+  const hourWidth = Math.round(216 * zoomFactor);
+  const hourGap = Math.max(12, Math.round(18 * zoomFactor));
   const slotWidth = (hourWidth * slotMinutes) / 60;
   const slotsPerHour = 60 / slotMinutes;
   const futureDays = 14;
+  const dateLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+      }).format(new Date()),
+    []
+  );
 
   const filteredTasks = useMemo(() => {
     if (selectedMember === 'all') return tasks;
@@ -119,14 +154,31 @@ export default function TeamView() {
   const getTodayTargetTop = useCallback(() => {
     const container = boardScrollRef.current;
     const stickyHeight = stickyHeaderRef.current?.offsetHeight ?? 46;
-    const rowHeight = todayRowRef.current?.offsetHeight ?? 0;
-    const revealBuffer = rowHeight * TODAY_REVEAL_BUFFER_ROWS;
     if (!container) return null;
     const target =
       todayRowRef.current ?? container.querySelector<HTMLElement>('[data-day-kind="today"]');
     if (!target) return null;
-    return Math.max(0, target.offsetTop - stickyHeight - revealBuffer - 2);
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const nextTop = container.scrollTop + (targetRect.top - containerRect.top) - stickyHeight;
+    return Math.min(maxTop, Math.max(0, nextTop));
   }, []);
+
+  const getNowTargetLeft = useCallback(() => {
+    const container = boardScrollRef.current;
+    if (!container || !hasTodayInRange) return null;
+
+    const nowMinutes = getMinutesSinceMidnightInTimeZone(new Date(), activeTimeZone);
+    const nowX = getNowAxisOffsetPx({
+      nowMinutes,
+      workday,
+      hourWidth,
+      hourGap,
+    });
+    const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    return Math.min(maxLeft, Math.max(0, nowX - container.clientWidth / 2));
+  }, [activeTimeZone, hasTodayInRange, hourGap, hourWidth, workday]);
 
   const scrollToToday = useCallback(
     (behavior: ScrollBehavior): boolean => {
@@ -184,19 +236,28 @@ export default function TeamView() {
       const targetTop = getTodayTargetTop();
       if (targetTop === null) {
         setShowBackToToday(false);
-        return;
+      } else {
+        setShowBackToToday(Math.abs(container.scrollTop - targetTop) > 90);
       }
-      setShowBackToToday(Math.abs(container.scrollTop - targetTop) > 90);
+
+      const nowTargetLeft = getNowTargetLeft();
+      if (nowTargetLeft === null) {
+        setShowJumpToNow(false);
+      } else {
+        setShowJumpToNow(Math.abs(container.scrollLeft - nowTargetLeft) > 64);
+      }
     };
 
     evaluate();
     container.addEventListener('scroll', evaluate, { passive: true });
     window.addEventListener('resize', evaluate);
+    const nowDriftTimer = window.setInterval(evaluate, 30_000);
     return () => {
       container.removeEventListener('scroll', evaluate);
       window.removeEventListener('resize', evaluate);
+      window.clearInterval(nowDriftTimer);
     };
-  }, [days, getTodayTargetTop]);
+  }, [days, getNowTargetLeft, getTodayTargetTop]);
 
   useEffect(() => {
     const container = boardScrollRef.current;
@@ -217,23 +278,72 @@ export default function TeamView() {
     };
   }, []);
 
-  const handleTimeAxisWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
-    if (!event.shiftKey || event.ctrlKey) return;
-    const container = boardScrollRef.current;
-    if (!container) return;
+  const adjustTimelineZoom = useCallback(
+    (direction: 'in' | 'out') => {
+      setPreference('timelineZoom', getNextTimelineZoom(timelineZoom, direction));
+    },
+    [setPreference, timelineZoom]
+  );
 
-    const delta = Math.abs(event.deltaY) >= 0.1 ? event.deltaY : event.deltaX;
-    if (Math.abs(delta) < 0.1) return;
+  const openCompact = useCallback(() => {
+    if (isDesktopShell()) {
+      void desktopToggleCompact();
+      return;
+    }
+    setPreference('compactEnabled', true);
+    navigate('/compact');
+  }, [navigate, setPreference]);
 
-    const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth);
-    if (maxLeft <= 0) return;
+  useEffect(() => {
+    if (!layoutV1Enabled || sidebarCollapsePreferenceSet) return;
+    if (typeof window === 'undefined') return;
 
-    const nextLeft = Math.min(maxLeft, Math.max(0, container.scrollLeft + delta));
-    if (Math.abs(nextLeft - container.scrollLeft) < 0.5) return;
+    const shouldCollapse = window.innerWidth < 1100;
+    setPreference('sidebarCollapsed', shouldCollapse);
+    setPreference('sidebarCollapsePreferenceSet', true);
+  }, [layoutV1Enabled, setPreference, sidebarCollapsePreferenceSet]);
 
-    container.scrollLeft = nextLeft;
-    event.preventDefault();
-  }, []);
+  const toggleSidebarCollapse = useCallback(() => {
+    const nextValue = !sidebarCollapsed;
+    setPreference('sidebarCollapsed', nextValue);
+    setPreference('sidebarCollapsePreferenceSet', true);
+    if (nextValue) {
+      setSidebarPanel(null);
+    }
+  }, [setPreference, sidebarCollapsed]);
+
+  useEffect(() => {
+    if (!sidebarCollapsed && sidebarPanel) {
+      setSidebarPanel(null);
+    }
+  }, [sidebarCollapsed, sidebarPanel]);
+
+  const handleTimeAxisWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      if (event.ctrlKey || event.metaKey) {
+        const direction = event.deltaY < 0 ? 'in' : 'out';
+        adjustTimelineZoom(direction);
+        event.preventDefault();
+        return;
+      }
+      if (!event.shiftKey) return;
+      const container = boardScrollRef.current;
+      if (!container) return;
+
+      const delta = Math.abs(event.deltaY) >= 0.1 ? event.deltaY : event.deltaX;
+      if (Math.abs(delta) < 0.1) return;
+
+      const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+      if (maxLeft <= 0) return;
+
+      const nextLeft = Math.min(maxLeft, Math.max(0, container.scrollLeft + delta));
+      if (Math.abs(nextLeft - container.scrollLeft) < 0.5) return;
+
+      container.scrollLeft = nextLeft;
+      event.preventDefault();
+    },
+    [adjustTimelineZoom]
+  );
 
   const timeSlots = useMemo(
     () => getWorkdayTimeSlots(slotMinutes, workday),
@@ -388,184 +498,416 @@ export default function TeamView() {
   }, [deepLinkTaskId, location.pathname, location.search, navigate, tasks]);
 
   return (
-    <div className="relative h-full min-h-0 flex flex-col bg-[var(--board-bg)] pt-[86px] md:pt-[98px]">
-      <div className="pointer-events-none absolute right-3 top-3 z-20 md:right-5 md:top-5">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-[14px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
-          <Select value={selectedMember} onValueChange={setSelectedMember}>
-            <SelectTrigger
-              data-testid="team-filter-trigger"
-              className="h-9 w-[150px] rounded-[10px] border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] md:w-[190px]"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {members.map((member) => (
-                <SelectItem
-                  data-testid={`team-filter-${member.id}`}
-                  key={member.id}
-                  value={member.id}
+    <div
+      className={`planner-density-scope relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--board-bg)] ${
+        layoutV1Enabled ? '' : 'ui-v1-pt-header-offset md:pt-[98px]'
+      }`}
+    >
+      {layoutV1Enabled ? (
+        <PlannerTopRail
+          view="team"
+          dateLabel={dateLabel}
+          timelineZoom={timelineZoom}
+          executionModeActive={executionModeActive}
+          onZoomOut={() => adjustTimelineZoom('out')}
+          onZoomIn={() => adjustTimelineZoom('in')}
+          onJumpToNow={() => scrollToNow('smooth')}
+          showJumpToNowButton={false}
+          onOpenCompact={openCompact}
+          leftControls={
+            <>
+              <UndoRedoControls />
+              <AddTaskDialog defaultAssignee={defaultAssignee} scheduleTasks={scheduleScopeTasks} />
+              <BlockTaskButton
+                defaultAssignee={defaultAssignee}
+                scheduleTasks={scheduleScopeTasks}
+              />
+            </>
+          }
+          rightControls={
+            <>
+              <Select value={selectedMember} onValueChange={setSelectedMember}>
+                <SelectTrigger
+                  data-testid="team-filter-trigger"
+                  className="h-8 w-[140px] ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[11px] text-[color:var(--hud-text)] md:w-[170px]"
                 >
-                  {member.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Badge className="hidden rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-3 text-[var(--hud-accent-soft-text)] md:inline-flex">
-            All {stats.total}
-          </Badge>
-          <Badge className="hidden rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-3 text-[var(--hud-accent-text)] md:inline-flex">
-            Done {stats.completed}
-          </Badge>
-          <Badge className="hidden rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-chip-neutral-bg)] px-3 text-[var(--hud-chip-neutral-text)] md:inline-flex">
-            Open {stats.pending}
-          </Badge>
-          <RealtimePresenceBadge compact />
-          <SettingsDrawerInner compact />
-        </div>
-      </div>
-
-      <div className="pointer-events-none absolute left-3 top-3 z-20 md:left-5 md:top-5">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-[14px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
-          <UndoRedoControls />
-          <AddTaskDialog defaultAssignee={defaultAssignee} scheduleTasks={scheduleScopeTasks} />
-          <BlockTaskButton defaultAssignee={defaultAssignee} scheduleTasks={scheduleScopeTasks} />
-          <button
-            type="button"
-            data-testid="jump-to-now-team"
-            onClick={() => scrollToNow('smooth')}
-            className="ui-hud-btn h-9 rounded-[10px] px-3 text-[12px] font-semibold"
-          >
-            Jump to now
-          </button>
-        </div>
-      </div>
-
-      <DailyPlanningPanel
-        tasks={filteredTasks}
-        scheduleTasks={scheduleScopeTasks}
-        onEdit={setEditingTask}
-      />
-      <ConflictResolutionBanner />
-
-      {inboxTasks.length > 0 && (
-        <div className="px-3 md:px-5">
-          <InboxPanel title="Inbox" tasks={inboxTasks} onEdit={setEditingTask} />
-        </div>
-      )}
-
-      <div
-        ref={boardScrollRef}
-        className="board-scroll min-h-0 flex-1 overflow-x-auto overflow-y-auto"
-      >
-        <div className="min-w-max pb-24">
-          <div
-            ref={stickyHeaderRef}
-            className="sticky top-0 z-10 flex border-b border-[color:var(--board-line)] bg-[var(--board-surface)]/92 backdrop-blur-sm"
-          >
-            <div className="sticky left-0 z-[20] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-surface)] md:w-[196px]" />
-            <div
-              className="relative"
-              style={{ width: `${gridWidth}px` }}
-              data-time-axis="1"
-              onWheel={handleTimeAxisWheel}
-            >
-              <div className="grid h-[46px] items-center" style={{ gridTemplateColumns }}>
-                {timeColumns.map((col) => {
-                  if (col.isGap) {
-                    return <div key={col.key} className="h-full bg-transparent" />;
-                  }
-
-                  return (
-                    <div key={col.key} className="flex h-full items-center">
-                      {col.isHourStart && (
-                        <span
-                          className="pl-2 text-[11px] font-semibold md:text-xs"
-                          style={{
-                            color:
-                              col.time === startLabel
-                                ? 'var(--hour-start-highlight)'
-                                : 'var(--board-muted)',
-                          }}
-                        >
-                          {col.time}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="pointer-events-none absolute right-2 top-0 flex h-[46px] items-center">
-                <span
-                  className="text-[10px] font-semibold md:text-[11px]"
-                  style={{ color: 'var(--hour-end-highlight)' }}
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {members.map((member) => (
+                    <SelectItem
+                      data-testid={`team-filter-${member.id}`}
+                      key={member.id}
+                      value={member.id}
+                    >
+                      {member.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Badge className="hidden rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-2 text-[10px] text-[var(--hud-accent-soft-text)] md:inline-flex">
+                {stats.total}
+              </Badge>
+              <RealtimePresenceBadge compact />
+              <SettingsDrawerInner compact triggerTestId="toprail-settings" />
+            </>
+          }
+          zoomOutTestId="timeline-zoom-out-team"
+          zoomInTestId="timeline-zoom-in-team"
+          zoomValueTestId="timeline-zoom-value-team"
+          jumpToNowTestId="jump-to-now-team"
+          canZoomOut={timelineZoom > 50}
+          canZoomIn={timelineZoom < 150}
+        />
+      ) : (
+        <>
+          <div className="pointer-events-none absolute right-3 top-3 z-20 md:right-5 md:top-5">
+            <div className="pointer-events-auto flex items-center gap-2 ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
+              <Select value={selectedMember} onValueChange={setSelectedMember}>
+                <SelectTrigger
+                  data-testid="team-filter-trigger"
+                  className="h-9 w-[150px] ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] md:w-[190px]"
                 >
-                  {endLabel}
-                </span>
-              </div>
-              <div className="pointer-events-none absolute right-14 top-0 flex h-[46px] items-center">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {members.map((member) => (
+                    <SelectItem
+                      data-testid={`team-filter-${member.id}`}
+                      key={member.id}
+                      value={member.id}
+                    >
+                      {member.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Badge className="hidden rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-3 text-[var(--hud-accent-soft-text)] md:inline-flex">
+                All {stats.total}
+              </Badge>
+              <Badge className="hidden rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-3 text-[var(--hud-accent-text)] md:inline-flex">
+                Done {stats.completed}
+              </Badge>
+              <Badge className="hidden rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-chip-neutral-bg)] px-3 text-[var(--hud-chip-neutral-text)] md:inline-flex">
+                Open {stats.pending}
+              </Badge>
+              <RealtimePresenceBadge compact />
+              <SettingsDrawerInner compact />
+            </div>
+          </div>
+
+          <div className="pointer-events-none absolute left-3 top-3 z-20 md:left-5 md:top-5">
+            <div className="pointer-events-auto flex items-center gap-2 ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
+              <UndoRedoControls />
+              <AddTaskDialog defaultAssignee={defaultAssignee} scheduleTasks={scheduleScopeTasks} />
+              <BlockTaskButton
+                defaultAssignee={defaultAssignee}
+                scheduleTasks={scheduleScopeTasks}
+              />
+              <div className="flex items-center gap-1 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-1 py-1">
                 <button
                   type="button"
-                  data-testid="time-axis-now-pill-team"
-                  onClick={() => scrollToNow('smooth')}
-                  className="pointer-events-auto rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--hud-text)] md:text-[11px]"
+                  aria-label="Zoom out timeline"
+                  data-testid="timeline-zoom-out-team"
+                  onClick={() => adjustTimelineZoom('out')}
+                  className="ui-hud-btn h-7 w-7 ui-v1-radius-xs p-0"
+                  disabled={timelineZoom <= 50}
                 >
-                  Now
+                  <Minus className="mx-auto size-3.5" />
+                </button>
+                <span
+                  data-testid="timeline-zoom-value-team"
+                  className="min-w-[44px] text-center text-[11px] font-semibold text-[color:var(--hud-text)]"
+                >
+                  {timelineZoom}%
+                </span>
+                <button
+                  type="button"
+                  aria-label="Zoom in timeline"
+                  data-testid="timeline-zoom-in-team"
+                  onClick={() => adjustTimelineZoom('in')}
+                  className="ui-hud-btn h-7 w-7 ui-v1-radius-xs p-0"
+                  disabled={timelineZoom >= 150}
+                >
+                  <Plus className="mx-auto size-3.5" />
                 </button>
               </div>
             </div>
           </div>
+        </>
+      )}
 
-          {days.map((day) => (
-            <div
-              key={day.date}
-              ref={day.isToday ? todayRowRef : undefined}
-              data-day-row={day.date}
-              data-day-kind={day.isToday ? 'today' : 'other'}
-              className="flex min-h-[134px] border-b border-[color:var(--board-line)] md:min-h-[174px]"
+      <DailyPlanningPanel
+        tasks={filteredTasks}
+        scheduleTasks={scheduleScopeTasks}
+      />
+      <ConflictResolutionBanner />
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          className={`min-h-0 min-w-0 flex-1 ${
+            layoutV1Enabled ? 'flex gap-3 px-3 pb-3 md:gap-4 md:px-5 md:pb-5' : 'flex flex-col'
+          }`}
+        >
+          {layoutV1Enabled ? (
+            <aside
+              data-collapsed={sidebarCollapsed ? 'true' : 'false'}
+              className={`relative flex min-h-0 shrink-0 flex-col gap-3 transition-[width] duration-200 ${
+                sidebarCollapsed ? 'planner-sidebar w-[72px]' : 'planner-sidebar w-[300px]'
+              }`}
             >
-              <div
-                data-testid="day-label-cell"
-                className="sticky left-0 z-[8] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-bg)] pl-3 pr-2 py-5 text-left md:w-[196px] md:pl-4 md:pr-3 md:py-6"
-              >
-                <p
-                  className="text-[21px] leading-[1.02] font-bold tracking-[-0.03em] md:text-[34px]"
-                  style={{ color: 'var(--board-text)' }}
+              <div className="ui-hud-panel flex items-center justify-between ui-v1-radius-md px-2 py-2">
+                {!sidebarCollapsed ? (
+                  <p className="pl-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                    Sidebar
+                  </p>
+                ) : (
+                  <span />
+                )}
+                <button
+                  type="button"
+                  data-testid="sidebar-collapse-toggle-team"
+                  onClick={toggleSidebarCollapse}
+                  className="ui-hud-btn h-8 w-8 ui-v1-radius-sm p-0"
+                  title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                  aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 >
-                  {day.label.title}
-                </p>
-                <p
-                  className="mt-2 text-[11px] leading-none font-semibold uppercase tracking-[0.06em] md:text-[13px]"
-                  style={{ color: 'var(--board-muted)' }}
-                >
-                  {day.label.subtitle}
-                </p>
+                  {sidebarCollapsed ? (
+                    <PanelLeftOpen className="mx-auto size-4" />
+                  ) : (
+                    <PanelLeftClose className="mx-auto size-4" />
+                  )}
+                </button>
               </div>
-              <DayColumn
-                day={day.date}
-                tasks={tasksByDay.get(day.date) ?? []}
-                timeSlots={timeSlots}
-                slotMinutes={slotMinutes}
-                hourWidth={hourWidth}
-                hourGap={hourGap}
-                onEdit={setEditingTask}
-                onOpenQuickActions={(task) => setActiveHubTaskId(task.id)}
-                defaultAssignee={defaultAssignee}
-                scheduleTasks={scheduleScopeTasks}
-              />
+
+              {sidebarCollapsed ? (
+                <div className="ui-hud-panel flex items-center justify-center ui-v1-radius-md px-1 py-2">
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="sidebar-icon-inbox-team"
+                      onClick={() => setSidebarPanel('inbox')}
+                      className={`ui-hud-btn h-9 w-9 ui-v1-radius-sm p-0 ${
+                        sidebarPanel === 'inbox' ? 'ui-hud-btn-soft' : ''
+                      }`}
+                      title="Inbox"
+                      aria-label="Inbox"
+                    >
+                      <Inbox className="mx-auto size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="sidebar-icon-capacity-team"
+                      onClick={() => setSidebarPanel('capacity')}
+                      className={`ui-hud-btn h-9 w-9 ui-v1-radius-sm p-0 ${
+                        sidebarPanel === 'capacity' ? 'ui-hud-btn-soft' : ''
+                      }`}
+                      title="Capacity"
+                      aria-label="Capacity"
+                    >
+                      <ChartColumnIncreasing className="mx-auto size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="sidebar-icon-notes-team"
+                      onClick={() => setSidebarPanel('notes')}
+                      className={`ui-hud-btn h-9 w-9 ui-v1-radius-sm p-0 ${
+                        sidebarPanel === 'notes' ? 'ui-hud-btn-soft' : ''
+                      }`}
+                      title="Today's notes"
+                      aria-label="Today's notes"
+                    >
+                      <NotebookPen className="mx-auto size-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <InboxPanel
+                    title="Inbox"
+                    tasks={inboxTasks}
+                    onEdit={setEditingTask}
+                    variant="sidebar"
+                  />
+                  <CapacityBar tasks={filteredTasks} />
+                  <TodayNotePanel />
+                </>
+              )}
+
+              {sidebarCollapsed && sidebarPanel && (
+                <div
+                  data-testid="layoutv1-sidebar-panel"
+                  className="planner-sidebar-panel absolute left-full top-0 z-20 ml-2 flex h-full w-[300px] min-h-0 flex-col gap-3"
+                >
+                  <div className="ui-hud-panel flex items-center justify-between ui-v1-radius-md px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+                      {sidebarPanel === 'inbox'
+                        ? 'Inbox'
+                        : sidebarPanel === 'capacity'
+                          ? 'Capacity'
+                          : "Today's notes"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setSidebarPanel(null)}
+                      className="ui-hud-btn h-8 w-8 ui-v1-radius-sm p-0"
+                      aria-label="Close sidebar panel"
+                    >
+                      <PanelLeftClose className="mx-auto size-4" />
+                    </button>
+                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col gap-3">
+                    {sidebarPanel === 'inbox' && (
+                      <InboxPanel
+                        title="Inbox"
+                        tasks={inboxTasks}
+                        onEdit={setEditingTask}
+                        variant="sidebar"
+                      />
+                    )}
+                    {sidebarPanel === 'capacity' && <CapacityBar tasks={filteredTasks} />}
+                    {sidebarPanel === 'notes' && <TodayNotePanel />}
+                  </div>
+                </div>
+              )}
+            </aside>
+          ) : inboxTasks.length > 0 ? (
+            <div className="px-3 md:px-5">
+              <InboxPanel title="Inbox" tasks={inboxTasks} onEdit={setEditingTask} />
             </div>
-          ))}
+          ) : null}
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div
+              ref={boardScrollRef}
+              className="board-scroll h-0 min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto"
+            >
+              <div className="min-w-max pb-24">
+                <div
+                  ref={stickyHeaderRef}
+                  className="sticky top-0 z-10 flex border-b border-[color:var(--board-line)] bg-[var(--board-surface)]/92 backdrop-blur-sm"
+                >
+                  <div className="sticky left-0 z-[20] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-surface)] md:w-[196px]" />
+                  <div
+                    className="relative"
+                    style={{ width: `${gridWidth}px` }}
+                    data-time-axis="1"
+                    onWheel={handleTimeAxisWheel}
+                  >
+                    <div className="grid h-[46px] items-center" style={{ gridTemplateColumns }}>
+                      {timeColumns.map((col) => {
+                        if (col.isGap) {
+                          return <div key={col.key} className="h-full bg-transparent" />;
+                        }
+
+                        return (
+                          <div key={col.key} className="flex h-full items-center">
+                            {col.isHourStart && (
+                              <span
+                                className="planner-hour-label pl-2 text-[11px] font-semibold md:text-xs"
+                                style={{
+                                  color:
+                                    col.time === startLabel
+                                      ? 'var(--hour-start-highlight)'
+                                      : 'var(--board-muted)',
+                                }}
+                              >
+                                {col.time}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="pointer-events-none absolute right-2 top-0 flex h-[46px] items-center">
+                      <span
+                        className="planner-hour-end-label text-[10px] font-semibold md:text-[11px]"
+                        style={{ color: 'var(--hour-end-highlight)' }}
+                      >
+                        {endLabel}
+                      </span>
+                    </div>
+                    <div className="pointer-events-none absolute right-14 top-0 flex h-[46px] items-center">
+                      <button
+                        type="button"
+                        data-testid="time-axis-now-pill-team"
+                        onClick={() => scrollToNow('smooth')}
+                        className="planner-now-pill pointer-events-auto rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--hud-text)] md:text-[11px]"
+                      >
+                        Now
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {days.map((day) => (
+                  <div
+                    key={day.date}
+                    ref={day.isToday ? todayRowRef : undefined}
+                    data-day-row={day.date}
+                    data-day-kind={day.isToday ? 'today' : 'other'}
+                    className="planner-day-row flex min-h-[134px] border-b border-[color:var(--board-line)] md:min-h-[174px]"
+                  >
+                    <div
+                      data-testid="day-label-cell"
+                      className="planner-day-label-cell sticky left-0 z-[8] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-bg)] py-5 pl-3 pr-2 text-left md:w-[196px] md:py-6 md:pl-4 md:pr-3"
+                    >
+                      <p
+                        className="planner-day-title text-[21px] leading-[1.02] font-bold tracking-[-0.03em] md:text-[34px]"
+                        style={{ color: 'var(--board-text)' }}
+                      >
+                        {day.label.title}
+                      </p>
+                      <p
+                        className="planner-day-subtitle mt-2 text-[11px] leading-none font-semibold uppercase tracking-[0.06em] md:text-[13px]"
+                        style={{ color: 'var(--board-muted)' }}
+                      >
+                        {day.label.subtitle}
+                      </p>
+                    </div>
+                    <DayColumn
+                      day={day.date}
+                      tasks={tasksByDay.get(day.date) ?? []}
+                      timeSlots={timeSlots}
+                      slotMinutes={slotMinutes}
+                      hourWidth={hourWidth}
+                      hourGap={hourGap}
+                      onEdit={setEditingTask}
+                      onOpenQuickActions={(task) => setActiveHubTaskId(task.id)}
+                      defaultAssignee={defaultAssignee}
+                      scheduleTasks={scheduleScopeTasks}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {showBackToToday && (
+      {(showBackToToday || showJumpToNow) && (
         <div className="pointer-events-none absolute bottom-24 right-3 z-20 md:right-5">
-          <button
-            type="button"
-            onClick={() => scrollToToday('smooth')}
-            className="ui-back-to-today pointer-events-auto h-9 rounded-[11px] px-3 text-[12px] font-semibold hover:brightness-105"
-          >
-            Back to Today
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            {showJumpToNow && (
+              <button
+                type="button"
+                data-testid="jump-to-now-team"
+                onClick={() => scrollToNow('smooth')}
+                className="ui-back-to-today pointer-events-auto h-9 ui-v1-radius-sm px-3 text-[12px] font-semibold hover:brightness-105"
+              >
+                Jump to now
+              </button>
+            )}
+            {showBackToToday && (
+              <button
+                type="button"
+                onClick={() => scrollToToday('smooth')}
+                className="ui-back-to-today pointer-events-auto h-9 ui-v1-radius-sm px-3 text-[12px] font-semibold hover:brightness-105"
+              >
+                Back to Today
+              </button>
+            )}
+          </div>
         </div>
       )}
 

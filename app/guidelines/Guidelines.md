@@ -4,14 +4,14 @@
 
 System Guidelines
 
-Use this file to provide the AI with rules and guidelines you want it to follow.
+Use this file to provide the generator with rules and guidelines you want it to follow.
 This template outlines a few examples of things you can add. You can add your own sections and format it to suit your needs
 
 TIP: More context isn't always better. It can confuse the LLM. Try and add the most important rules you need
 
 # General guidelines
 
-Any general rules you want the AI to follow.
+Any general rules you want the generator to follow.
 For example:
 
 * Only use absolute positioning when necessary. Opt for responsive and well structured layouts that use flexbox and grid by default
@@ -21,7 +21,7 @@ For example:
 --------------
 
 # Design system guidelines
-Rules for how the AI should make generations look like your company's design system
+Rules for how the generator should make generations look like your company's design system
 
 Additionally, if you select a design system to use in the prompt box, you can reference
 your design system's components, tokens, variables and components.

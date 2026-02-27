@@ -101,7 +101,7 @@ export default function LoginView() {
         </p>
       }
       heroLead="Welcome back to"
-      heroTitle="Taskable"
+      heroTitle="Tareva"
       heroSubtitle="Pick up where you left off. Your planner, priorities, and workspace sync return after sign-in."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-login-form">

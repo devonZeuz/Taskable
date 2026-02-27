@@ -81,9 +81,11 @@ export default function SettingsDrawer() {
 export function SettingsDrawerInner({
   triggerClassName,
   compact = false,
+  triggerTestId,
 }: {
   triggerClassName?: string;
   compact?: boolean;
+  triggerTestId?: string;
 }) {
   const { user } = useCloudSync();
   const [open, setOpen] = useState(loadStoredOpenState);
@@ -136,8 +138,9 @@ export function SettingsDrawerInner({
       <DialogTrigger asChild>
         <Button
           type="button"
+          data-testid={triggerTestId}
           variant="ghost"
-          className={`h-9 gap-2 rounded-[11px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 text-[color:var(--hud-text)] hover:bg-[var(--hud-surface-soft)] hover:text-[color:var(--hud-text)] ${
+          className={`planner-control h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 text-[color:var(--hud-text)] hover:bg-[var(--hud-surface-soft)] hover:text-[color:var(--hud-text)] ${
             triggerClassName ?? ''
           }`}
         >
@@ -151,7 +154,10 @@ export function SettingsDrawerInner({
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="h-[min(90vh,860px)] w-[min(1180px,96vw)] max-w-none gap-0 overflow-hidden border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-0 text-[color:var(--hud-text)] shadow-[0_24px_60px_rgba(0,0,0,0.52)] backdrop-blur-xl sm:max-w-none">
+      <DialogContent
+        className="h-[min(90vh,860px)] w-[min(1180px,96vw)] max-w-none gap-0 overflow-hidden border-[color:var(--hud-border)] bg-[var(--hud-surface)] text-[color:var(--hud-text)] ui-v1-elevation-3 backdrop-blur-xl sm:max-w-none"
+        style={{ padding: 0 }}
+      >
         <div className="flex h-full min-h-0 flex-col">
           <DialogHeader className="border-b border-[color:var(--hud-border)] px-4 py-3 sm:px-5">
             <DialogTitle className="text-left text-[16px] font-bold text-[color:var(--hud-text)]">

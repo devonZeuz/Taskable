@@ -11,9 +11,9 @@ test('shows branded recovery UI when lazy route chunk fails', async ({ page }) =
 
   await page.route('**/assets/*.js*', async (route) => {
     const url = route.request().url();
-    const isAppShellChunk = /\/assets\/index-[^/]+\.js/.test(url);
+    const isTargetTeamChunk = /\/assets\/TeamView-[^/]+\.js/.test(url);
 
-    if (abortNextChunk && !isAppShellChunk) {
+    if (abortNextChunk && isTargetTeamChunk) {
       abortNextChunk = false;
       abortedChunkUrl = url;
       await route.abort('failed');
@@ -24,6 +24,7 @@ test('shows branded recovery UI when lazy route chunk fails', async ({ page }) =
   });
 
   await page.goto('/planner');
+  await expect(page.getByTestId('nav-team')).toBeVisible();
   abortNextChunk = true;
   await page.getByTestId('nav-team').click();
 

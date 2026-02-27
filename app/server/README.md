@@ -1,4 +1,4 @@
-# Taskable Backend MVP
+# Tareva Backend MVP
 
 Local backend scaffold for auth, org scoping, task CRUD, audit events, local-data import, and realtime presence.
 
@@ -53,7 +53,7 @@ Server default URL: `http://localhost:4000`
 
 ## Notes
 
-- Uses SQLite (`server/data/taskable.db`) via `better-sqlite3`.
+- Uses SQLite (`server/data/Tareva.db`) via `better-sqlite3`.
 - Uses bearer JWT auth plus refresh-token session rotation.
 - Supports Microsoft identity token exchange for Outlook add-in SSO (`/api/auth/microsoft/exchange`).
 - Supports TOTP MFA enrollment and login challenge for local auth users.
@@ -84,7 +84,7 @@ Server default URL: `http://localhost:4000`
 - `VERIFICATION_TOKEN_TTL_HOURS` (default `24`)
 - `PASSWORD_RESET_TOKEN_TTL_MINUTES` (default `30`)
 - `MFA_LOGIN_TOKEN_TTL_MINUTES` (default `10`)
-- `MFA_ISSUER` (default `Taskable`)
+- `MFA_ISSUER` (default `Tareva`)
 - `AUTH_RATE_LIMIT_WINDOW_MS` (default `600000`)
 - `AUTH_RATE_LIMIT_MAX_ATTEMPTS` (default `12`)
 - `CORS_ORIGIN` (default `http://localhost:5173`; preferred single-origin setting)
@@ -102,6 +102,7 @@ Server default URL: `http://localhost:4000`
 - `POSTMARK_MESSAGE_STREAM` (default `outbound`)
 - `ENABLE_DEV_TOKEN_PREVIEW` (default `false` in prod; dev-only token preview support)
 - `EMAIL_REQUIRE_DELIVERY` (default `true` in prod)
+- `ENABLE_ADMIN_API` (default `true` in dev/test, `false` in production unless explicitly enabled)
 - `ALLOW_QUERY_TOKEN_AUTH` (default `false` in prod)
 - `SSE_STREAM_TOKEN_TTL_MINUTES` (default `5`)
 - `ALLOW_LEGACY_SSE_QUERY_ACCESS_TOKEN` (default `false`, intended for local fallback only)
@@ -127,3 +128,5 @@ Server default URL: `http://localhost:4000`
 4. Turn off dev token preview in production (`ENABLE_DEV_TOKEN_PREVIEW=false`).
 5. Set `EMAIL_REQUIRE_DELIVERY=true` in production so auth flows fail safely if delivery is down.
 6. Monitor bounce/complaint dashboards and rotate compromised sender keys immediately.
+
+Detailed operational runbook: `../docs/EmailDeliverabilityRunbook.md`

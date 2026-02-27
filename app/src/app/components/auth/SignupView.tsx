@@ -6,6 +6,7 @@ import {
   isCloudUnreachableError,
   registerWithPassword,
 } from '../../services/authClient';
+import { writeCloudTutorialCompleted } from '../../services/authStorage';
 import { useOnboarding } from '../../context/OnboardingContext';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -42,11 +43,15 @@ export default function SignupView() {
         email: email.trim(),
         password,
       });
+      const nextUserId = session.user?.id ?? null;
+      if (nextUserId) {
+        writeCloudTutorialCompleted(nextUserId, false);
+      }
       setCloudSession({
         token: session.token,
         refreshToken: session.refreshToken,
         orgId: session.defaultOrgId,
-        userId: session.user?.id ?? null,
+        userId: nextUserId,
       });
       if (session.verificationRequired) {
         setMessage(
@@ -98,7 +103,7 @@ export default function SignupView() {
         </p>
       }
       heroLead="Build with"
-      heroTitle="Taskable"
+      heroTitle="Tareva"
       heroSubtitle="Create your account once, then use the same planner and sync layer across every surface."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-signup-form">

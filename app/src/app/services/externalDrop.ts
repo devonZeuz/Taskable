@@ -4,13 +4,23 @@ export interface ExternalDropTaskData {
 }
 
 export function hasExternalPayload(dataTransfer: DataTransfer): boolean {
-  const types = Array.from(dataTransfer.types ?? []);
-  return (
-    dataTransfer.files.length > 0 ||
-    types.includes('text/plain') ||
-    types.includes('text/uri-list') ||
-    types.includes('text/html')
-  );
+  if (dataTransfer.files.length > 0) {
+    return true;
+  }
+
+  const read = (type: string) => {
+    try {
+      return (dataTransfer.getData(type) ?? '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const plain = read('text/plain');
+  const uriList = read('text/uri-list');
+  const html = read('text/html');
+
+  return plain.length > 0 || uriList.length > 0 || html.length > 0;
 }
 
 export function parseExternalDrop(dataTransfer: DataTransfer): ExternalDropTaskData | null {

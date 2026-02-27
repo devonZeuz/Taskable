@@ -55,7 +55,7 @@ export default function SecuritySettings() {
 
   if (!token || !user) {
     return (
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-sm text-[color:var(--hud-muted)]">
           Connect a cloud account to manage security settings.
         </p>
@@ -117,7 +117,7 @@ export default function SecuritySettings() {
       const setup = await startMfaEnrollment();
       const qrWindow = window.open('', '_blank', 'noopener,noreferrer,width=360,height=420');
       if (qrWindow) {
-        qrWindow.document.title = 'Taskable MFA Setup';
+        qrWindow.document.title = 'Tareva MFA Setup';
         qrWindow.document.body.style.margin = '0';
         qrWindow.document.body.style.fontFamily =
           "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -128,7 +128,7 @@ export default function SecuritySettings() {
         qrWindow.document.body.innerHTML = `
           <div style="padding:16px;text-align:center;">
             <p style="margin:0 0 10px;font-size:14px;">Scan this QR with your authenticator app</p>
-            <img src="${setup.qrDataUrl}" alt="Taskable MFA QR" width="240" height="240" />
+            <img src="${setup.qrDataUrl}" alt="Tareva MFA QR" width="240" height="240" />
           </div>
         `;
       }
@@ -161,7 +161,7 @@ export default function SecuritySettings() {
 
   return (
     <div className="space-y-4">
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Account Status
         </p>
@@ -206,7 +206,7 @@ export default function SecuritySettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Password & Recovery
         </p>
@@ -220,7 +220,7 @@ export default function SecuritySettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
             Session Activity
@@ -232,7 +232,7 @@ export default function SecuritySettings() {
         <p className="mt-2 text-[11px] text-[color:var(--hud-muted)]">
           Session rotation is active. Global sign-out endpoint is WIP.
         </p>
-        <div className="mt-3 max-h-[240px] space-y-1 overflow-auto ui-hud-row rounded-[10px] p-2">
+        <div className="mt-3 max-h-[240px] space-y-1 overflow-auto ui-hud-row ui-v1-radius-sm p-2">
           {loadingSessions && (
             <p className="px-2 py-1 text-xs text-[color:var(--hud-muted)]">Loading sessions...</p>
           )}
@@ -261,7 +261,7 @@ export default function SecuritySettings() {
 
 function StatusRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="ui-hud-row rounded-[10px] px-3 py-2">
+    <div className="ui-hud-row ui-v1-radius-sm px-3 py-2">
       <p className="text-[11px] uppercase tracking-[0.07em] text-[color:var(--hud-muted)]">
         {label}
       </p>

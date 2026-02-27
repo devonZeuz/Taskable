@@ -20,6 +20,10 @@ interface TelemetryPayload {
 
 interface SuggestionResult {
   suggestedDurationMinutes: number | null;
+  correctedDurationMinutes: number | null;
+  correctionFactor: number | null;
+  correctionTrend: 'overrun' | 'underrun' | 'balanced' | 'unknown';
+  correctionSampleCount: number;
   durationSampleCount: number;
   suggestedWindow: { start: string; end: string } | null;
   windowSampleCount: number;
@@ -116,6 +120,10 @@ function formatWindowEnd(hour: number) {
   return `${String((hour + 2) % 24).padStart(2, '0')}:00`;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function recordTaskCompletionSample(input: {
   title: string;
   type: TaskType;
@@ -167,6 +175,7 @@ export function getTaskSuggestions(input: {
   title: string;
   type: TaskType;
   slotMinutes: number;
+  currentDurationMinutes?: number;
 }): SuggestionResult {
   const key = normalizeKey(input.title, input.type);
   const payload = loadTelemetry();
@@ -180,10 +189,37 @@ export function getTaskSuggestions(input: {
     .map((sample) => sample.actualMinutes)
     .filter((value) => Number.isFinite(value) && value > 0);
   const durationMedian = median(durationValues);
-  const suggestedDurationMinutes =
+  const sampleRatios = fallbackSamples
+    .map((sample) => {
+      if (!Number.isFinite(sample.plannedMinutes) || sample.plannedMinutes <= 0) return null;
+      if (!Number.isFinite(sample.actualMinutes) || sample.actualMinutes <= 0) return null;
+      return sample.actualMinutes / sample.plannedMinutes;
+    })
+    .filter((ratio): ratio is number => ratio !== null);
+  const ratioMedian = median(sampleRatios);
+  const correctionFactor = ratioMedian === null ? null : clamp(ratioMedian, 0.55, 2.2);
+  const correctedDurationMinutes =
+    correctionFactor !== null &&
+    Number.isFinite(input.currentDurationMinutes) &&
+    (input.currentDurationMinutes ?? 0) > 0
+      ? roundDurationToGrid(
+          Math.max(input.slotMinutes, (input.currentDurationMinutes ?? 0) * correctionFactor),
+          input.slotMinutes
+        )
+      : null;
+  const suggestedFromHistory =
     durationMedian === null
       ? null
       : roundDurationToGrid(Math.max(input.slotMinutes, durationMedian), input.slotMinutes);
+  const suggestedDurationMinutes = correctedDurationMinutes ?? suggestedFromHistory;
+  const correctionTrend =
+    correctionFactor === null
+      ? 'unknown'
+      : correctionFactor > 1.1
+        ? 'overrun'
+        : correctionFactor < 0.9
+          ? 'underrun'
+          : 'balanced';
 
   const byHour = new Map<number, number>();
   fallbackSamples.forEach((sample) => {
@@ -202,6 +238,10 @@ export function getTaskSuggestions(input: {
 
   return {
     suggestedDurationMinutes,
+    correctedDurationMinutes,
+    correctionFactor,
+    correctionTrend,
+    correctionSampleCount: sampleRatios.length,
     durationSampleCount: durationValues.length,
     suggestedWindow:
       topHour === null

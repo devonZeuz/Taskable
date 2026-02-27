@@ -1,5 +1,5 @@
-appId: com.taskable.desktop
-productName: Taskable
+appId: com.tareva.desktop
+productName: Tareva
 buildVersion: 0.0.1
 asar: true
 publish: null
@@ -13,8 +13,8 @@ files:
   - package.json
 
 extraMetadata:
-  name: taskable-desktop
-  productName: Taskable
+  name: tareva-desktop
+  productName: Tareva
   version: 0.0.1
   main: desktop/main.cjs
 
@@ -22,7 +22,7 @@ win:
   target:
     - nsis
   icon: desktop/assets/tray.png
-  publisherName: Taskable
+  publisherName: Tareva
   artifactName: ${productName}-Setup-${version}.${ext}
 
 nsis:

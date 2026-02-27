@@ -5,7 +5,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const EMAIL_PROVIDER = String(process.env.EMAIL_PROVIDER || (isProduction ? 'disabled' : 'console'))
   .trim()
   .toLowerCase();
-const EMAIL_FROM = (process.env.EMAIL_FROM || 'Taskable <no-reply@taskable.local>').trim();
+const EMAIL_FROM = (process.env.EMAIL_FROM || 'Tareva <no-reply@tareva.local>').trim();
 function pickAppBaseUrl() {
   const candidates = [
     process.env.BASE_URL,
@@ -59,11 +59,11 @@ function makeActionUrl(pathname, tokenParamName, token) {
 function buildVerificationTemplate({ name, token }) {
   const verificationUrl = makeActionUrl('/', 'verifyToken', token);
   const safeName = (name || 'there').trim() || 'there';
-  const subject = 'Verify your Taskable account';
+  const subject = 'Verify your Tareva account';
   const text = [
     `Hi ${safeName},`,
     '',
-    'Welcome to Taskable. Verify your email to complete account setup.',
+    'Welcome to Tareva. Verify your email to complete account setup.',
     '',
     `Verification link: ${verificationUrl}`,
     '',
@@ -75,7 +75,7 @@ function buildVerificationTemplate({ name, token }) {
   const html = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#14161a;line-height:1.5;">
       <p>Hi ${escapeHtml(safeName)},</p>
-      <p>Welcome to Taskable. Verify your email to complete account setup.</p>
+      <p>Welcome to Tareva. Verify your email to complete account setup.</p>
       <p><a href="${verificationUrl}" target="_blank" rel="noreferrer noopener">Verify email</a></p>
       <p>If the app asks for a token manually, use this value:</p>
       <pre style="background:#f3f4f7;padding:10px;border-radius:8px;font-size:13px;">${escapeHtml(token)}</pre>
@@ -94,11 +94,11 @@ function buildVerificationTemplate({ name, token }) {
 function buildPasswordResetTemplate({ name, token }) {
   const resetUrl = makeActionUrl('/', 'resetToken', token);
   const safeName = (name || 'there').trim() || 'there';
-  const subject = 'Reset your Taskable password';
+  const subject = 'Reset your Tareva password';
   const text = [
     `Hi ${safeName},`,
     '',
-    'A password reset was requested for your Taskable account.',
+    'A password reset was requested for your Tareva account.',
     '',
     `Reset link: ${resetUrl}`,
     '',
@@ -110,7 +110,7 @@ function buildPasswordResetTemplate({ name, token }) {
   const html = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#14161a;line-height:1.5;">
       <p>Hi ${escapeHtml(safeName)},</p>
-      <p>A password reset was requested for your Taskable account.</p>
+      <p>A password reset was requested for your Tareva account.</p>
       <p><a href="${resetUrl}" target="_blank" rel="noreferrer noopener">Reset password</a></p>
       <p>If the app asks for a token manually, use this value:</p>
       <pre style="background:#f3f4f7;padding:10px;border-radius:8px;font-size:13px;">${escapeHtml(token)}</pre>
@@ -210,7 +210,7 @@ function extractEmailAddress(value) {
 function extractDisplayName(value) {
   const match = value.match(/^([^<]+)</);
   if (match?.[1]) return match[1].trim().replace(/^"|"$/g, '');
-  return 'Taskable';
+  return 'Tareva';
 }
 
 async function safeJson(response) {

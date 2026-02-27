@@ -1,6 +1,8 @@
 import { APP_THEMES, useAppTheme } from '../../../context/AppThemeContext';
+import { useOnboarding } from '../../../context/OnboardingContext';
 import { useUserPreferences } from '../../../context/UserPreferencesContext';
 import { useWorkday } from '../../../context/WorkdayContext';
+import { resolveExecutionModeV1Flag } from '../../../flags';
 import { desktopSetAlwaysOnTop, isDesktopShell } from '../../../services/desktopShell';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -14,10 +16,13 @@ function formatHour(hour: number) {
 }
 
 export default function GeneralSettings() {
+  const executionModeV1Enabled = resolveExecutionModeV1Flag();
   const { theme, setTheme } = useAppTheme();
+  const { mode } = useOnboarding();
   const { workday, setWorkday } = useWorkday();
   const { preferences, setPreference } = useUserPreferences();
   const desktopMode = isDesktopShell();
+  const executionModeGateOpen = executionModeV1Enabled ? preferences.executionModeEnabled : true;
 
   const handleStartChange = (value: string) => {
     const nextStart = Number(value);
@@ -35,7 +40,7 @@ export default function GeneralSettings() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[14px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
+      <section className="ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Theme
         </p>
@@ -45,7 +50,7 @@ export default function GeneralSettings() {
               key={option.value}
               type="button"
               onClick={() => setTheme(option.value)}
-              className={`rounded-[10px] border px-3 py-2 text-left text-sm ${
+              className={`ui-v1-radius-sm border px-3 py-2 text-left text-sm ${
                 theme === option.value
                   ? 'ui-hud-btn-soft'
                   : 'ui-hud-btn bg-[var(--hud-surface-strong)] opacity-80 hover:border-[color:var(--hud-outline)] hover:opacity-100'
@@ -80,7 +85,7 @@ export default function GeneralSettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Planner Defaults
         </p>
@@ -218,10 +223,67 @@ export default function GeneralSettings() {
               </SelectContent>
             </Select>
           </div>
+
+          <div className="space-y-1.5">
+            <Label>Timeline zoom</Label>
+            <Select
+              value={String(preferences.timelineZoom)}
+              onValueChange={(value) => {
+                const next = Number(value);
+                if (next === 50 || next === 75 || next === 100 || next === 125 || next === 150) {
+                  setPreference('timelineZoom', next);
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="50">50%</SelectItem>
+                <SelectItem value="75">75%</SelectItem>
+                <SelectItem value="100">100%</SelectItem>
+                <SelectItem value="125">125%</SelectItem>
+                <SelectItem value="150">150%</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>UI density</Label>
+            <div
+              className="grid grid-cols-2 gap-1 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-1"
+              data-testid="ui-density-control"
+            >
+              <button
+                type="button"
+                data-testid="ui-density-comfortable"
+                onClick={() => setPreference('uiDensity', 'comfortable')}
+                className={`h-8 ui-v1-radius-sm px-2 text-xs font-semibold ${
+                  preferences.uiDensity === 'comfortable'
+                    ? 'ui-hud-btn-soft'
+                    : 'ui-hud-btn opacity-80 hover:opacity-100'
+                }`}
+              >
+                Comfortable
+              </button>
+              <button
+                type="button"
+                data-testid="ui-density-compact"
+                onClick={() => setPreference('uiDensity', 'compact')}
+                className={`h-8 ui-v1-radius-sm px-2 text-xs font-semibold ${
+                  preferences.uiDensity === 'compact'
+                    ? 'ui-hud-btn-soft'
+                    : 'ui-hud-btn opacity-80 hover:opacity-100'
+                }`}
+              >
+                Compact
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Compact Mode
         </p>
@@ -269,7 +331,7 @@ export default function GeneralSettings() {
 
           <div className="space-y-1.5">
             <Label>Last compact pop-out bounds</Label>
-            <div className="ui-hud-row rounded-[10px] px-3 py-2 text-[11px] text-[color:var(--hud-muted)]">
+            <div className="ui-hud-row ui-v1-radius-sm px-3 py-2 text-[11px] text-[color:var(--hud-muted)]">
               {preferences.compactWindowBounds ? (
                 <>
                   {preferences.compactWindowBounds.width} x {preferences.compactWindowBounds.height}
@@ -284,11 +346,20 @@ export default function GeneralSettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section rounded-[14px] p-4">
+      <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
           Behavior
         </p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {executionModeV1Enabled && (
+            <ToggleRow
+              label="Execution mode"
+              description="Enable time-aware execution automation and runtime insights."
+              checked={preferences.executionModeEnabled}
+              onCheckedChange={(checked) => setPreference('executionModeEnabled', checked)}
+              testId="execution-mode-toggle"
+            />
+          )}
           <ToggleRow
             label="Sound effects"
             description="Play completion and undo tones."
@@ -307,6 +378,41 @@ export default function GeneralSettings() {
             checked={preferences.autoPlaceOnConflict}
             onCheckedChange={(checked) => setPreference('autoPlaceOnConflict', checked)}
           />
+          <ToggleRow
+            label="Auto-start at start time"
+            description={
+              executionModeGateOpen
+                ? 'Start scheduled tasks automatically when the now-line reaches them.'
+                : 'Enable Execution mode first.'
+            }
+            checked={preferences.autoStartTasksAtStartTime}
+            onCheckedChange={(checked) => setPreference('autoStartTasksAtStartTime', checked)}
+            disabled={executionModeV1Enabled && !preferences.executionModeEnabled}
+          />
+          <ToggleRow
+            label="Auto-switch active task"
+            description={
+              executionModeGateOpen
+                ? 'When auto-start runs, pause the current running task first.'
+                : 'Enable Execution mode first.'
+            }
+            checked={preferences.autoSwitchActiveTask}
+            onCheckedChange={(checked) => setPreference('autoSwitchActiveTask', checked)}
+            disabled={executionModeV1Enabled && !preferences.executionModeEnabled}
+          />
+          {executionModeV1Enabled && (
+            <ToggleRow
+              label="Share operational telemetry in cloud mode"
+              description={
+                mode === 'cloud'
+                  ? 'Send execution telemetry to cloud ops ingest for reliability insights.'
+                  : 'Only applies when cloud mode is active.'
+              }
+              checked={preferences.telemetryShareEnabled}
+              onCheckedChange={(checked) => setPreference('telemetryShareEnabled', checked)}
+              testId="telemetry-share-toggle"
+            />
+          )}
           <ToggleRow
             label="Adaptive execution mode"
             description="Keep planned times stable while tracking runtime overrun."
@@ -336,19 +442,33 @@ function ToggleRow({
   description,
   checked,
   onCheckedChange,
+  disabled = false,
+  testId,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+  testId?: string;
 }) {
   return (
-    <div className="flex items-center justify-between ui-hud-row rounded-[10px] px-3 py-2">
+    <div
+      data-testid={testId ? `${testId}-row` : undefined}
+      className={`flex items-center justify-between ui-hud-row ui-v1-radius-sm px-3 py-2 ${
+        disabled ? 'opacity-60' : ''
+      }`}
+    >
       <div className="pr-3">
         <p className="text-sm font-semibold text-[color:var(--hud-text)]">{label}</p>
         <p className="text-[11px] text-[color:var(--hud-muted)]">{description}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch
+        data-testid={testId}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+      />
     </div>
   );
 }
