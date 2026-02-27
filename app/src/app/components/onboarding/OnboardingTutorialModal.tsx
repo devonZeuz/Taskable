@@ -134,6 +134,8 @@ export default function OnboardingTutorialModal({
       <DialogContent
         data-testid="onboarding-tutorial-modal"
         className="onboarding-tutorial-modal w-[min(560px,calc(100vw-1rem))] max-w-none overflow-hidden rounded-[22px] border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] p-0 text-[color:var(--hud-text)]"
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{currentSlide.title}</DialogTitle>

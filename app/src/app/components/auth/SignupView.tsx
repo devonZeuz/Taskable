@@ -54,11 +54,6 @@ export default function SignupView() {
         orgId: session.defaultOrgId,
         userId: nextUserId,
       });
-      if (session.verificationRequired) {
-        setMessage(
-          'Account created. Verify your email from your inbox to unlock all cloud actions.'
-        );
-      }
       navigate(returnTo, { replace: true });
     } catch (error) {
       if (isCloudUnreachableError(error)) {

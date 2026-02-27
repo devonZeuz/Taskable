@@ -22,6 +22,7 @@ import { CLOUD_API_BASE_URL, CLOUD_SYNC_ENABLED } from '../services/cloudApi';
 import { getDayKey, getDayKeyFromDateTime } from '../services/scheduling';
 import { normalizeExecutionStatus } from '../services/taskTimer';
 import type { PlannerMode } from '../services/authStorage';
+import { readCloudTutorialCompleted } from '../services/authStorage';
 import OnboardingTutorialModal from './onboarding/OnboardingTutorialModal';
 import { resolveExecutionModeV1Flag, resolveLayoutV1Flag } from '../flags';
 import { flushExecutionTelemetry } from '../services/executionTelemetry';
@@ -662,11 +663,18 @@ function PlannerOnboardingTutorial({
   const { user } = useCloudSync();
   const [isOpen, setIsOpen] = useState(false);
   const resolvedCloudUserId = user?.id ?? cloudUserId ?? null;
+  const cloudTutorialCompleted = resolvedCloudUserId
+    ? readCloudTutorialCompleted(resolvedCloudUserId)
+    : false;
+  const tutorialCompleted =
+    plannerMode === 'cloud'
+      ? hasCompletedTutorial || cloudTutorialCompleted
+      : hasCompletedTutorial;
 
   const shouldShowTutorial =
     plannerMode === 'local'
-      ? !hasCompletedTutorial
-      : Boolean(resolvedCloudUserId) && !hasCompletedTutorial;
+      ? !tutorialCompleted
+      : Boolean(resolvedCloudUserId) && !tutorialCompleted;
 
   useEffect(() => {
     if (isCompactRoute) {
