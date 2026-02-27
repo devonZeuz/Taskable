@@ -24,3 +24,11 @@ artifacts/
 desktop/CODE_SIGNING.md
 AUDIT.md
 *inspo*.png
+
+# Local compliance/audit working docs (kept local, not versioned)
+AppAuditReport.md
+AppAuditStructure.md
+MASTER_CHANGESET.md
+TAREVA_PROD_AUDIT_AND_CODEX_PLAN.md
+docs/TAREVA_APP_ATLAS.md
+docs/TAREVA_APP_ATLAS.json
