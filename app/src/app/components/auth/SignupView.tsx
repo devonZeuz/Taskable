@@ -34,6 +34,7 @@ export default function SignupView() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
     setMessage(null);
 
@@ -62,6 +63,15 @@ export default function SignupView() {
     } catch (error) {
       if (isCloudUnreachableError(error)) {
         setMessage('Cloud API is unreachable. Check server status and VITE_API_URL.');
+      } else if (
+        error instanceof CloudRequestError &&
+        error.status === 409 &&
+        error.payload &&
+        typeof error.payload === 'object' &&
+        'code' in error.payload &&
+        (error.payload as { code?: string }).code === 'EMAIL_EXISTS'
+      ) {
+        setMessage('An account already exists for this email. Use Sign in instead.');
       } else {
         const detail = getAuthErrorMessage(error, 'Signup failed.');
         const requestId = error instanceof CloudRequestError ? error.requestId : null;

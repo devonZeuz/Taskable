@@ -45,14 +45,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'about', label: 'About', description: 'Version and diagnostics' },
 ];
 
-function loadStoredOpenState() {
-  try {
-    return localStorage.getItem(SETTINGS_DRAWER_OPEN_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
 function loadStoredSection(): SettingsSectionKey {
   try {
     const stored = localStorage.getItem(SETTINGS_ACTIVE_SECTION_STORAGE_KEY);
@@ -88,16 +80,18 @@ export function SettingsDrawerInner({
   triggerTestId?: string;
 }) {
   const { user } = useCloudSync();
-  const [open, setOpen] = useState(loadStoredOpenState);
+  const [open, setOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSectionKey>(loadStoredSection);
 
   useEffect(() => {
+    // Legacy cleanup: this key previously persisted dialog open-state across auth sessions.
+    // Keeping it caused settings to re-open after logout/login.
     try {
-      localStorage.setItem(SETTINGS_DRAWER_OPEN_STORAGE_KEY, String(open));
+      localStorage.removeItem(SETTINGS_DRAWER_OPEN_STORAGE_KEY);
     } catch {
       // ignore persistence errors
     }
-  }, [open]);
+  }, []);
 
   useEffect(() => {
     try {

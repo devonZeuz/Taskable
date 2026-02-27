@@ -35,6 +35,7 @@ export default function LoginView() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
     setMessage(null);
 
