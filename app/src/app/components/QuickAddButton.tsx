@@ -3,7 +3,6 @@ import { Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import AddTaskDialog from './AddTaskDialog';
 import { Task, useTasks } from '../context/TaskContext';
-import { APP_THEME_TASK_SWATCHES, useAppTheme } from '../context/AppThemeContext';
 import { combineDayAndTime } from '../services/scheduling';
 
 interface QuickAddButtonProps {
@@ -20,9 +19,7 @@ export default function QuickAddButton({
   scheduleTasks,
 }: QuickAddButtonProps) {
   const { addTask } = useTasks();
-  const { theme } = useAppTheme();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const defaultColor = APP_THEME_TASK_SWATCHES[theme][0]?.value ?? '#8d929c';
 
   const handleQuickCreate = () => {
     const assignedToValue =
@@ -32,7 +29,6 @@ export default function QuickAddButton({
       description: '',
       startDateTime: combineDayAndTime(day, time).toISOString(),
       durationMinutes: 60,
-      color: defaultColor,
       subtasks: [],
       type: 'quick',
       assignedTo: assignedToValue,
@@ -40,6 +36,7 @@ export default function QuickAddButton({
       status: 'scheduled',
       executionStatus: 'idle',
       actualMinutes: 0,
+      version: 0,
     });
     setEditingTask(created);
   };
@@ -52,7 +49,7 @@ export default function QuickAddButton({
           size="sm"
           data-testid={`quick-add-${day}-${time}`}
           onClick={handleQuickCreate}
-          className="mx-auto h-9 min-w-[108px] rounded-[10px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 text-[12px] font-semibold text-[color:var(--hud-accent-soft)] hover:brightness-110"
+          className="mx-auto h-9 min-w-[108px] ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 text-[12px] font-semibold text-[color:var(--hud-accent-soft)] hover:brightness-110"
         >
           <Plus className="size-4" />
           Add Task

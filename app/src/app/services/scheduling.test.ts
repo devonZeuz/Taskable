@@ -28,6 +28,7 @@ function makeTask(
     subtasks: [],
     type: 'quick',
     status: 'scheduled',
+    version: 1,
     ...overrides,
   };
 }

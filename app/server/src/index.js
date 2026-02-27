@@ -8,7 +8,20 @@ import crypto from 'node:crypto';
 import { generateSecret, generateURI, verifySync } from 'otplib';
 import QRCode from 'qrcode';
 import { z } from 'zod';
-import { createId, db } from './db.js';
+import {
+  countVerificationResendsForUser,
+  createId,
+  db,
+  fetchScopedConflictEvents,
+  fetchScopedOperationalEvents,
+  findUserForScopedAdmin,
+  getOwnedOrgIdsForUser,
+  listScopedOrgsForAdmin,
+  listScopedUsersForAdmin,
+  summarizeScopedEmailEvents,
+  summarizeScopedOrgs,
+  summarizeScopedUsers,
+} from './db.js';
 import { getValidatedEnv } from './env.js';
 import { ORG_ROLES, requireAuth, requireOrgAccess, requireOrgRole, signAuthToken } from './auth.js';
 import { getEmailDeliveryConfig, sendPasswordResetEmail, sendVerificationEmail } from './email.js';
@@ -29,14 +42,14 @@ const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
 const VERIFICATION_TOKEN_TTL_HOURS = Number(process.env.VERIFICATION_TOKEN_TTL_HOURS || 24);
 const PASSWORD_RESET_TOKEN_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || 30);
 const MFA_LOGIN_TOKEN_TTL_MINUTES = Number(process.env.MFA_LOGIN_TOKEN_TTL_MINUTES || 10);
-const { isProduction } = getValidatedEnv();
+const { isProduction, enableAdminApi: ENABLE_ADMIN_API } = getValidatedEnv();
 const SSE_STREAM_TOKEN_TTL_MINUTES = Math.max(
   1,
   Number(process.env.SSE_STREAM_TOKEN_TTL_MINUTES || 5)
 );
 const ALLOW_LEGACY_SSE_QUERY_ACCESS_TOKEN =
   process.env.ALLOW_LEGACY_SSE_QUERY_ACCESS_TOKEN === 'true' && !isProduction;
-const MFA_ISSUER = (process.env.MFA_ISSUER || 'Taskable').trim() || 'Taskable';
+const MFA_ISSUER = (process.env.MFA_ISSUER || 'Tareva').trim() || 'Tareva';
 const RATE_LIMIT_WINDOW_MS = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000);
 const RATE_LIMIT_MAX_ATTEMPTS = Number(process.env.AUTH_RATE_LIMIT_MAX_ATTEMPTS || 12);
 const ENABLE_DEV_TOKEN_PREVIEW = !isProduction && process.env.ENABLE_DEV_TOKEN_PREVIEW === 'true';
@@ -227,6 +240,10 @@ const OPS_ALERT_OUTLOOK_FAIL_COUNT_THRESHOLD = Math.max(
   1,
   Number(process.env.OPS_ALERT_OUTLOOK_FAIL_COUNT_THRESHOLD || 3)
 );
+const METRICS_ACCESS_TOKEN = (process.env.METRICS_ACCESS_TOKEN || '').trim();
+const ADMIN_DEFAULT_PAGE_LIMIT = 50;
+const ADMIN_MAX_PAGE_LIMIT = 200;
+const ADMIN_RESEND_LIMIT_PER_DAY = 3;
 const operationalMetrics = {
   syncSuccessCount: 0,
   syncFailureCount: 0,
@@ -416,6 +433,45 @@ function sendError(res, status, code, message, details) {
     code,
     details: details ?? undefined,
   });
+}
+
+function isLoopbackIp(value) {
+  return value === '127.0.0.1' || value === '::1' || value === '::ffff:127.0.0.1';
+}
+
+function requireMetricsToken(req, res, next) {
+  if (!METRICS_ACCESS_TOKEN) {
+    if (isLoopbackIp(req.ip || '')) {
+      next();
+      return;
+    }
+    sendError(
+      res,
+      401,
+      'METRICS_DISABLED',
+      'Metrics access token is not configured for non-loopback requests.'
+    );
+    return;
+  }
+
+  const providedHeader = req.headers['x-metrics-token'];
+  const providedQueryToken = req.query?.token;
+  const providedRaw = Array.isArray(providedHeader)
+    ? providedHeader[0]
+    : typeof providedHeader === 'string'
+      ? providedHeader
+      : Array.isArray(providedQueryToken)
+        ? providedQueryToken[0]
+        : typeof providedQueryToken === 'string'
+          ? providedQueryToken
+          : '';
+  const provided = (providedRaw || '').trim();
+  if (!provided || provided !== METRICS_ACCESS_TOKEN) {
+    sendError(res, 401, 'METRICS_UNAUTHORIZED', 'Invalid metrics access token.');
+    return;
+  }
+
+  next();
 }
 
 function ensureMicrosoftJwksResolver() {
@@ -618,18 +674,41 @@ async function queueVerificationEmail({ userId, email, name, token }) {
       token,
       metadata: { userId },
     });
-    return {
+    const result = {
       ...delivery,
       failed: false,
       error: null,
     };
+    persistOperationalEvent({
+      userId,
+      eventType: 'email.verification.send',
+      status: result.queued ? 202 : 200,
+      code: result.skipped ? 'skipped' : 'sent',
+      source: 'email',
+      metadata: {
+        provider: result.provider,
+      },
+    });
+    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown';
     console.error(`[email] verify delivery failed user=${userId} reason=${message}`);
+    const provider = getEmailDeliveryConfig().provider;
+    persistOperationalEvent({
+      userId,
+      eventType: 'email.verification.send',
+      status: 503,
+      code: 'failed',
+      source: 'email',
+      metadata: {
+        provider,
+        error: message.slice(0, 160),
+      },
+    });
     return {
       queued: false,
       skipped: false,
-      provider: getEmailDeliveryConfig().provider,
+      provider,
       failed: true,
       error: message,
     };
@@ -644,18 +723,41 @@ async function queuePasswordResetEmail({ userId, email, name, token }) {
       token,
       metadata: { userId },
     });
-    return {
+    const result = {
       ...delivery,
       failed: false,
       error: null,
     };
+    persistOperationalEvent({
+      userId,
+      eventType: 'email.reset.send',
+      status: result.queued ? 202 : 200,
+      code: result.skipped ? 'skipped' : 'sent',
+      source: 'email',
+      metadata: {
+        provider: result.provider,
+      },
+    });
+    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown';
     console.error(`[email] reset delivery failed user=${userId} reason=${message}`);
+    const provider = getEmailDeliveryConfig().provider;
+    persistOperationalEvent({
+      userId,
+      eventType: 'email.reset.send',
+      status: 503,
+      code: 'failed',
+      source: 'email',
+      metadata: {
+        provider,
+        error: message.slice(0, 160),
+      },
+    });
     return {
       queued: false,
       skipped: false,
-      provider: getEmailDeliveryConfig().provider,
+      provider,
       failed: true,
       error: message,
     };
@@ -1118,6 +1220,24 @@ const activityQuerySchema = z.object({
   to: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
+const adminScopeQuerySchema = z.object({
+  orgId: z.string().min(1).optional(),
+});
+const adminPaginationSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(ADMIN_MAX_PAGE_LIMIT).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+const adminUsersQuerySchema = adminPaginationSchema.extend({
+  query: z.string().max(160).optional(),
+  orgId: z.string().min(1).optional(),
+});
+const adminOrgsQuerySchema = adminPaginationSchema.extend({
+  orgId: z.string().min(1).optional(),
+});
+const adminConflictsQuerySchema = adminPaginationSchema.extend({
+  status: z.enum(['unresolved', 'all']).optional().default('unresolved'),
+  orgId: z.string().min(1).optional(),
+});
 
 async function verifyMicrosoftAccessToken(accessToken) {
   if (microsoftSsoAllowedAudiences.length === 0) {
@@ -1165,7 +1285,7 @@ async function verifyMicrosoftAccessToken(accessToken) {
       }
 
       const normalizedEmail = emailClaim.trim().toLowerCase();
-      const defaultName = normalizedEmail.split('@')[0] || 'Taskable User';
+      const defaultName = normalizedEmail.split('@')[0] || 'Tareva User';
       const nameClaim =
         typeof payload.name === 'string' && payload.name.trim().length > 0
           ? payload.name.trim()
@@ -1228,6 +1348,154 @@ function mapOrgRows(userId) {
     }));
 }
 
+function toIsoOrNull(value) {
+  if (!value || typeof value !== 'string') return null;
+  const normalized = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function parseOpsMetadata(rawValue) {
+  if (!rawValue || typeof rawValue !== 'string') return {};
+  try {
+    const parsed = JSON.parse(rawValue);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function clampPageParams(limit, offset) {
+  const safeLimit = Number.isInteger(limit)
+    ? Math.max(1, Math.min(ADMIN_MAX_PAGE_LIMIT, limit))
+    : ADMIN_DEFAULT_PAGE_LIMIT;
+  const safeOffset = Number.isInteger(offset) ? Math.max(0, offset) : 0;
+  return {
+    limit: safeLimit,
+    offset: safeOffset,
+  };
+}
+
+function requireOwner(req, res, next) {
+  const ownedOrgIds = getOwnedOrgIdsForUser(req.user?.id);
+  if (!Array.isArray(ownedOrgIds) || ownedOrgIds.length === 0) {
+    sendError(res, 403, 'OWNER_ROLE_REQUIRED', 'Owner role required for admin routes.');
+    return;
+  }
+  req.ownedOrgIds = ownedOrgIds;
+  next();
+}
+
+function requireAdminApiEnabled(_req, res, next) {
+  if (!ENABLE_ADMIN_API) {
+    sendError(res, 404, 'ADMIN_API_DISABLED', 'Admin API is disabled for this environment.');
+    return;
+  }
+  next();
+}
+
+function resolveAdminOrgScope(req, res) {
+  const ownedOrgIds = Array.isArray(req.ownedOrgIds) ? req.ownedOrgIds : [];
+  if (ownedOrgIds.length === 0) return [];
+
+  const requestedOrgId = typeof req.query?.orgId === 'string' ? req.query.orgId.trim() : '';
+  if (!requestedOrgId) return ownedOrgIds;
+
+  if (!ownedOrgIds.includes(requestedOrgId)) {
+    sendError(
+      res,
+      403,
+      'ORG_ACCESS_DENIED',
+      'Requested org is outside your owner scope for admin routes.'
+    );
+    return null;
+  }
+
+  return [requestedOrgId];
+}
+
+function toConflictLookupKey(orgId, taskId) {
+  return `${orgId || 'none'}::${taskId || 'unknown'}`;
+}
+
+function buildConflictTimeline(events, nowMs = Date.now()) {
+  const sortedEvents = [...events]
+    .map((event) => ({
+      ...event,
+      createdIso: toIsoOrNull(event.created_at),
+      metadata: parseOpsMetadata(event.metadata_json),
+    }))
+    .filter((event) => event.createdIso)
+    .sort((a, b) => Date.parse(a.createdIso) - Date.parse(b.createdIso));
+
+  const activeByKey = new Map();
+  const timeline = [];
+
+  sortedEvents.forEach((event) => {
+    const metadata = event.metadata;
+    const taskId =
+      typeof metadata.taskId === 'string' && metadata.taskId.trim().length > 0
+        ? metadata.taskId.trim()
+        : null;
+    if (!taskId) return;
+
+    const lookupKey = toConflictLookupKey(event.org_id, taskId);
+    if (event.event_type === 'conflict_entered') {
+      const entry = {
+        orgId: event.org_id,
+        taskId,
+        userId: event.user_id ?? null,
+        enteredAt: event.createdIso,
+        resolvedAt: null,
+        durationMs: Math.max(0, nowMs - Date.parse(event.createdIso)),
+        strategy: null,
+      };
+      timeline.push(entry);
+      const queue = activeByKey.get(lookupKey) ?? [];
+      queue.push(entry);
+      activeByKey.set(lookupKey, queue);
+      return;
+    }
+
+    if (event.event_type !== 'conflict_resolved') return;
+
+    const queue = activeByKey.get(lookupKey);
+    if (!queue || queue.length === 0) return;
+    const conflict = queue.shift();
+    if (!conflict) return;
+    conflict.resolvedAt = event.createdIso;
+    conflict.durationMs = Math.max(
+      0,
+      Date.parse(event.createdIso) - Date.parse(conflict.enteredAt)
+    );
+    conflict.strategy =
+      typeof metadata.strategy === 'string' && metadata.strategy.trim().length > 0
+        ? metadata.strategy
+        : null;
+    if (queue.length === 0) {
+      activeByKey.delete(lookupKey);
+    } else {
+      activeByKey.set(lookupKey, queue);
+    }
+  });
+
+  return timeline.sort((a, b) => Date.parse(b.enteredAt) - Date.parse(a.enteredAt));
+}
+
+function toAdminScopeTaskTitles({ orgIds }) {
+  if (!Array.isArray(orgIds) || orgIds.length === 0) return new Map();
+  const inClause = orgIds.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT id, org_id, title
+       FROM tasks
+       WHERE org_id IN (${inClause})`
+    )
+    .all(...orgIds);
+  return new Map(rows.map((row) => [toConflictLookupKey(row.org_id, row.id), row.title]));
+}
+
 function authResponsePayload({ user, tokens, defaultOrgId }) {
   return {
     user: mapUserRow(user),
@@ -1248,7 +1516,7 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/metrics/basic', (_req, res) => {
+app.get('/metrics/basic', requireMetricsToken, (_req, res) => {
   res.json({
     totalRequests: requestMetrics.total,
     lastRequestAt: requestMetrics.lastRequestAt,
@@ -1257,7 +1525,7 @@ app.get('/metrics/basic', (_req, res) => {
   });
 });
 
-app.get('/metrics/slo', (_req, res) => {
+app.get('/metrics/slo', requireMetricsToken, (_req, res) => {
   const sinceIso = isoAtWindowStart(24 * 60);
   const events = fetchOperationalEvents({ sinceIso });
   const aggregate = aggregateOperationalSlo(events);
@@ -1928,6 +2196,427 @@ app.get('/api/me', requireAuth, (req, res) => {
   const orgs = mapOrgRows(req.user.id);
   res.json({ user: mapUserRow(req.user), orgs });
 });
+
+app.get('/api/admin/overview', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+  const parsed = adminScopeQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendError(res, 400, 'INVALID_INPUT', 'Invalid admin overview query.', parsed.error.flatten());
+    return;
+  }
+
+  const scopedOrgIds = resolveAdminOrgScope(req, res);
+  if (scopedOrgIds === null) return;
+  const activeSessionAfterIso = nowSqlDate();
+  const conflictSinceIso = isoAtWindowStart(7 * 24 * 60);
+  const syncSinceIso = isoAtWindowStart(24 * 60);
+  const emailSinceIso = isoAtWindowStart(7 * 24 * 60);
+
+  const usersSummary = summarizeScopedUsers({
+    orgIds: scopedOrgIds,
+    activeSessionAfterIso,
+  });
+  const orgsSummary = summarizeScopedOrgs({ orgIds: scopedOrgIds });
+
+  const conflictTimelineLast7d = buildConflictTimeline(
+    fetchScopedConflictEvents({ orgIds: scopedOrgIds, sinceIso: conflictSinceIso })
+  );
+  const unresolvedLast7d = conflictTimelineLast7d.filter((entry) => !entry.resolvedAt);
+  const topConflictOrgs = new Map();
+  conflictTimelineLast7d.forEach((entry) => {
+    if (!entry.orgId) return;
+    topConflictOrgs.set(entry.orgId, (topConflictOrgs.get(entry.orgId) ?? 0) + 1);
+  });
+  const scopedOrgs = listScopedOrgsForAdmin({
+    orgIds: scopedOrgIds,
+    limit: scopedOrgIds.length,
+    offset: 0,
+    conflictSinceIso,
+  }).orgs;
+  const orgNameById = new Map(scopedOrgs.map((org) => [org.orgId, org.name]));
+
+  const longestUnresolvedDurationMs = unresolvedLast7d.reduce(
+    (longest, conflict) => Math.max(longest, conflict.durationMs ?? 0),
+    0
+  );
+
+  const syncEvents = fetchScopedOperationalEvents({
+    orgIds: scopedOrgIds,
+    sinceIso: syncSinceIso,
+  });
+  const syncSummary = aggregateOperationalSlo(syncEvents);
+  const emailSummaryRaw = summarizeScopedEmailEvents({
+    orgIds: scopedOrgIds,
+    sinceIso: emailSinceIso,
+  });
+  const emailProvider = getEmailDeliveryConfig().provider;
+  const emailSummary = {
+    providerMode: emailProvider,
+    verification: emailSummaryRaw.verification,
+    reset: emailSummaryRaw.reset,
+  };
+
+  res.json({
+    usersSummary: {
+      totalUsers: usersSummary.totalUsers,
+      verifiedCount: usersSummary.verifiedCount,
+      mfaEnabledCount: usersSummary.mfaEnabledCount,
+      activeSessionsCount: usersSummary.activeSessionsCount,
+    },
+    orgsSummary: {
+      totalOrgs: orgsSummary.totalOrgs,
+      totalMembers: orgsSummary.totalMembers,
+      totalTasks: orgsSummary.totalTasks,
+    },
+    conflictsSummary: {
+      unresolvedCountLast7d: unresolvedLast7d.length,
+      longestUnresolvedDurationMs,
+      topOrgsByConflicts: Array.from(topConflictOrgs.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([orgId, count]) => ({
+          orgId,
+          orgName: orgNameById.get(orgId) ?? orgId,
+          count,
+        })),
+    },
+    syncSummary,
+    emailSummary,
+  });
+});
+
+app.get('/api/admin/users', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+  const parsed = adminUsersQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendError(res, 400, 'INVALID_INPUT', 'Invalid admin users query.', parsed.error.flatten());
+    return;
+  }
+
+  const scopedOrgIds = resolveAdminOrgScope(req, res);
+  if (scopedOrgIds === null) return;
+
+  const { limit, offset } = clampPageParams(parsed.data.limit, parsed.data.offset);
+  const resendSinceIso = isoAtWindowStart(24 * 60);
+  const result = listScopedUsersForAdmin({
+    orgIds: scopedOrgIds,
+    query: parsed.data.query ?? '',
+    limit,
+    offset,
+    resendSinceIso,
+  });
+
+  res.json({
+    total: result.total,
+    limit,
+    offset,
+    users: result.users.map((user) => ({
+      id: user.id,
+      email: user.email,
+      createdAt: toIsoOrNull(user.createdAt),
+      emailVerifiedAt: toIsoOrNull(user.emailVerifiedAt),
+      emailVerified: Boolean(user.emailVerifiedAt),
+      mfaEnabled: Boolean(user.mfaEnabled),
+      lastLoginAt: toIsoOrNull(user.lastLoginAt),
+      orgCount: Number(user.orgCount) || 0,
+      resendVerificationCountLast24h: Number(user.resendVerificationCountLast24h) || 0,
+    })),
+  });
+});
+
+app.post(
+  '/api/admin/users/:userId/resend-verification',
+  requireAdminApiEnabled,
+  requireAuth,
+  requireOwner,
+  async (req, res) => {
+    const scopedOrgIds = resolveAdminOrgScope(req, res);
+    if (scopedOrgIds === null) return;
+
+    const targetUser = findUserForScopedAdmin({
+      userId: req.params.userId,
+      orgIds: scopedOrgIds,
+    });
+    if (!targetUser) {
+      sendError(res, 404, 'USER_NOT_FOUND', 'User is outside your admin scope.');
+      return;
+    }
+
+    const resendWindowStartIso = isoAtWindowStart(24 * 60);
+    const resendCount = countVerificationResendsForUser({
+      targetUserId: targetUser.id,
+      sinceIso: resendWindowStartIso,
+    });
+    if (resendCount >= ADMIN_RESEND_LIMIT_PER_DAY) {
+      persistOperationalEvent({
+        orgId: targetUser.scopedOrgId ?? null,
+        userId: req.user.id,
+        eventType: 'email.verification.resend',
+        status: 429,
+        code: `target:${targetUser.id}`,
+        source: 'admin',
+        metadata: {
+          reason: 'rate_limited',
+        },
+      });
+      sendError(
+        res,
+        429,
+        'VERIFICATION_RESEND_RATE_LIMITED',
+        'Verification resend limit reached for this user (3/day).'
+      );
+      return;
+    }
+
+    if (targetUser.emailVerifiedAt) {
+      res.json({
+        ok: true,
+        alreadyVerified: true,
+        userId: targetUser.id,
+      });
+      return;
+    }
+
+    const verificationToken = createAuthToken({
+      userId: targetUser.id,
+      tokenType: 'email_verify',
+      ttlAmount: VERIFICATION_TOKEN_TTL_HOURS,
+      ttlUnit: 'hours',
+    });
+    const verificationDelivery = await queueVerificationEmail({
+      userId: targetUser.id,
+      email: targetUser.email,
+      name: targetUser.name ?? '',
+      token: verificationToken,
+    });
+
+    persistOperationalEvent({
+      orgId: targetUser.scopedOrgId ?? null,
+      userId: req.user.id,
+      eventType: 'email.verification.resend',
+      status: verificationDelivery.failed ? 503 : verificationDelivery.queued ? 202 : 200,
+      code: `target:${targetUser.id}`,
+      source: 'admin',
+      metadata: {
+        provider: verificationDelivery.provider,
+        queued: verificationDelivery.queued,
+        skipped: verificationDelivery.skipped,
+        failed: verificationDelivery.failed,
+      },
+    });
+
+    if (verificationDelivery.provider === 'disabled' || verificationDelivery.skipped) {
+      sendError(
+        res,
+        503,
+        'EMAIL_PROVIDER_DISABLED',
+        'Email provider is disabled. Enable email delivery before resending verification.'
+      );
+      return;
+    }
+
+    if (verificationDelivery.failed && EMAIL_REQUIRE_DELIVERY) {
+      sendError(
+        res,
+        503,
+        'EMAIL_DELIVERY_FAILED',
+        'Unable to resend verification email. Please try again.'
+      );
+      return;
+    }
+
+    res.json({
+      ok: true,
+      userId: targetUser.id,
+      delivery: {
+        queued: verificationDelivery.queued,
+        skipped: verificationDelivery.skipped,
+        provider: verificationDelivery.provider,
+      },
+      previewToken: ENABLE_DEV_TOKEN_PREVIEW ? verificationToken : undefined,
+    });
+  }
+);
+
+app.get('/api/admin/orgs', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+  const parsed = adminOrgsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendError(res, 400, 'INVALID_INPUT', 'Invalid admin orgs query.', parsed.error.flatten());
+    return;
+  }
+
+  const scopedOrgIds = resolveAdminOrgScope(req, res);
+  if (scopedOrgIds === null) return;
+
+  const { limit, offset } = clampPageParams(parsed.data.limit, parsed.data.offset);
+  const conflictSinceIso = isoAtWindowStart(7 * 24 * 60);
+  const result = listScopedOrgsForAdmin({
+    orgIds: scopedOrgIds,
+    limit,
+    offset,
+    conflictSinceIso,
+  });
+
+  res.json({
+    total: result.total,
+    limit,
+    offset,
+    orgs: result.orgs.map((org) => {
+      const taskActivityMs = Date.parse(toIsoOrNull(org.lastTaskActivityAt) ?? '');
+      const opsActivityMs = Date.parse(toIsoOrNull(org.lastOpsActivityAt) ?? '');
+      const lastActivityAt =
+        Number.isFinite(taskActivityMs) && Number.isFinite(opsActivityMs)
+          ? new Date(Math.max(taskActivityMs, opsActivityMs)).toISOString()
+          : Number.isFinite(taskActivityMs)
+            ? new Date(taskActivityMs).toISOString()
+            : Number.isFinite(opsActivityMs)
+              ? new Date(opsActivityMs).toISOString()
+              : null;
+      return {
+        orgId: org.orgId,
+        name: org.name,
+        createdAt: toIsoOrNull(org.createdAt),
+        memberCount: Number(org.memberCount) || 0,
+        taskCount: Number(org.taskCount) || 0,
+        conflictCountLast7d: Number(org.conflictCountLast7d) || 0,
+        lastActivityAt,
+      };
+    }),
+  });
+});
+
+app.get('/api/admin/conflicts', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+  const parsed = adminConflictsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendError(res, 400, 'INVALID_INPUT', 'Invalid admin conflicts query.', parsed.error.flatten());
+    return;
+  }
+
+  const scopedOrgIds = resolveAdminOrgScope(req, res);
+  if (scopedOrgIds === null) return;
+
+  const { limit, offset } = clampPageParams(parsed.data.limit, parsed.data.offset);
+  const allConflicts = buildConflictTimeline(fetchScopedConflictEvents({ orgIds: scopedOrgIds }));
+  const filteredConflicts =
+    parsed.data.status === 'all' ? allConflicts : allConflicts.filter((entry) => !entry.resolvedAt);
+  const taskTitleByKey = toAdminScopeTaskTitles({ orgIds: scopedOrgIds });
+
+  res.json({
+    total: filteredConflicts.length,
+    limit,
+    offset,
+    conflicts: filteredConflicts.slice(offset, offset + limit).map((conflict) => ({
+      orgId: conflict.orgId,
+      taskId: conflict.taskId,
+      userId: conflict.userId,
+      enteredAt: conflict.enteredAt,
+      resolvedAt: conflict.resolvedAt,
+      durationMs: conflict.durationMs ?? 0,
+      strategy: conflict.strategy,
+      title: taskTitleByKey.get(toConflictLookupKey(conflict.orgId, conflict.taskId)) ?? null,
+    })),
+  });
+});
+
+app.get('/api/admin/sync-health', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
+  const parsed = adminScopeQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendError(
+      res,
+      400,
+      'INVALID_INPUT',
+      'Invalid admin sync-health query.',
+      parsed.error.flatten()
+    );
+    return;
+  }
+
+  const scopedOrgIds = resolveAdminOrgScope(req, res);
+  if (scopedOrgIds === null) return;
+
+  const events24h = fetchScopedOperationalEvents({
+    orgIds: scopedOrgIds,
+    sinceIso: isoAtWindowStart(24 * 60),
+  });
+  const events7d = fetchScopedOperationalEvents({
+    orgIds: scopedOrgIds,
+    sinceIso: isoAtWindowStart(7 * 24 * 60),
+  });
+  const alertWindowEvents = fetchScopedOperationalEvents({
+    orgIds: scopedOrgIds,
+    sinceIso: isoAtWindowStart(OPS_ALERT_WINDOW_MINUTES),
+  });
+  const slo = aggregateOperationalSlo(events24h);
+  const alerts = evaluateOperationalAlerts(alertWindowEvents, {
+    windowMinutes: OPS_ALERT_WINDOW_MINUTES,
+    thresholds: {
+      syncErrorRate: OPS_ALERT_SYNC_ERROR_RATE_THRESHOLD,
+      sseDisconnectRatio: OPS_ALERT_SSE_DISCONNECT_RATIO_THRESHOLD,
+      outlookImportFailures: OPS_ALERT_OUTLOOK_FAIL_COUNT_THRESHOLD,
+    },
+  });
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    syncErrors: {
+      last24h: events24h.filter((event) => event.event_type === 'sync.fail').length,
+      last7d: events7d.filter((event) => event.event_type === 'sync.fail').length,
+    },
+    sseConnectedRatio: slo.realtime.sseConnectedRatio,
+    slo,
+    alerts,
+    windowMinutes: OPS_ALERT_WINDOW_MINUTES,
+  });
+});
+
+app.get(
+  '/api/admin/email-health',
+  requireAdminApiEnabled,
+  requireAuth,
+  requireOwner,
+  (req, res) => {
+    const parsed = adminScopeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_INPUT',
+        'Invalid admin email-health query.',
+        parsed.error.flatten()
+      );
+      return;
+    }
+
+    const scopedOrgIds = resolveAdminOrgScope(req, res);
+    if (scopedOrgIds === null) return;
+
+    const providerConfig = getEmailDeliveryConfig();
+    const windowDays = 7;
+    const summary = summarizeScopedEmailEvents({
+      orgIds: scopedOrgIds,
+      sinceIso: isoAtWindowStart(windowDays * 24 * 60),
+    });
+    const attemptedTotal = summary.verification.attempted + summary.reset.attempted;
+
+    let availability = 'available';
+    let explanation = null;
+    if (providerConfig.provider === 'disabled') {
+      availability = 'disabled';
+      explanation = 'Email provider disabled by configuration.';
+    } else if (attemptedTotal === 0) {
+      availability = 'unknown';
+      explanation = 'No email delivery events were recorded in the selected window.';
+    }
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      providerMode: providerConfig.provider,
+      availability,
+      explanation,
+      windowDays,
+      verification: summary.verification,
+      reset: summary.reset,
+    });
+  }
+);
 
 app.post('/api/ops/events', requireAuth, (req, res) => {
   const parsed = operationalEventSchema.safeParse(req.body);
@@ -2623,13 +3312,61 @@ const taskEndPromptAckSchema = z.object({
   scheduledEndAt: z.string().datetime(),
   ifVersion: z.number().int().positive().optional(),
 });
+const taskListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(2000).optional().default(2000),
+  since: z.string().datetime().optional(),
+});
 
 app.get('/api/orgs/:orgId/tasks', requireAuth, requireOrgAccess, (req, res) => {
-  const rows = db
-    .prepare('SELECT * FROM tasks WHERE org_id = ? ORDER BY updated_at DESC')
-    .all(req.params.orgId);
+  const parsed = taskListQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendError(res, 400, 'INVALID_INPUT', 'Invalid task list query.', parsed.error.flatten());
+    return;
+  }
 
-  res.json({ tasks: rows.map(mapTaskRow) });
+  const { limit, since } = parsed.data;
+  const sinceSql = since ? toSqlDate(new Date(since)) : null;
+  const args = [req.params.orgId];
+  let query = 'SELECT * FROM tasks WHERE org_id = ?';
+
+  if (sinceSql) {
+    query += ' AND datetime(updated_at) >= datetime(?)';
+    args.push(sinceSql);
+  }
+
+  query += ' ORDER BY datetime(updated_at) DESC, id DESC LIMIT ?';
+  args.push(limit);
+
+  const rows = db.prepare(query).all(...args);
+  const tasks = rows.map(mapTaskRow);
+  const deletedTaskIds = sinceSql
+    ? db
+        .prepare(
+          `SELECT DISTINCT json_extract(payload_json, '$.taskId') AS task_id
+           FROM task_audit_events
+           WHERE org_id = ?
+             AND event_type = 'task.deleted'
+             AND datetime(created_at) >= datetime(?)
+           ORDER BY datetime(created_at) DESC
+           LIMIT ?`
+        )
+        .all(req.params.orgId, sinceSql, limit)
+        .map((row) => (typeof row.task_id === 'string' ? row.task_id : null))
+        .filter(Boolean)
+    : [];
+
+  const nextSince =
+    rows.length > 0 ? toIsoOrNull(rows[0].updated_at) ?? new Date().toISOString() : null;
+
+  res.json({
+    tasks,
+    limit,
+    since: since ?? null,
+    hasMore: rows.length === limit,
+    nextSince,
+    deletedTaskIds,
+    serverTime: new Date().toISOString(),
+  });
 });
 
 app.post(
@@ -3135,7 +3872,7 @@ app.delete(
       taskId: req.params.taskId,
       actorUserId: req.user.id,
       eventType: 'task.deleted',
-      payload: { ifVersion: ifVersion ?? null },
+      payload: { ifVersion: ifVersion ?? null, taskId: req.params.taskId },
     });
 
     db.prepare('DELETE FROM tasks WHERE id = ? AND org_id = ?').run(
@@ -3466,5 +4203,5 @@ app.post(
 );
 
 app.listen(PORT, () => {
-  console.log(`Taskable server listening on http://localhost:${PORT}`);
+  console.log(`Tareva server listening on http://localhost:${PORT}`);
 });

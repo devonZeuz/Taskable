@@ -91,6 +91,16 @@ export interface CloudSyncIssue {
   occurredAt: number;
 }
 
+interface TaskPullResponse {
+  tasks: Task[];
+  limit?: number;
+  since?: string | null;
+  hasMore?: boolean;
+  nextSince?: string | null;
+  deletedTaskIds?: string[];
+  serverTime?: string;
+}
+
 interface CloudLoginOptions {
   mfaTicket?: string;
   mfaCode?: string;
@@ -303,6 +313,19 @@ function getTaskStatus(task: Task): 'scheduled' | 'inbox' {
   return task.status ?? (task.startDateTime ? 'scheduled' : 'inbox');
 }
 
+function getTaskVersionForSync(task: Task, context: string): number {
+  if (Number.isFinite(task.version) && task.version >= 0) {
+    return Math.floor(task.version);
+  }
+
+  console.error('[sync] Task missing valid version; defaulting to 0.', {
+    context,
+    taskId: task.id,
+    version: task.version,
+  });
+  return 0;
+}
+
 function toTaskPayload(task: Task) {
   return {
     id: task.id,
@@ -432,6 +455,7 @@ export function CloudSyncProvider({
   const replaceTasksRef = useRef(replaceTasks);
   const serverTasksRef = useRef<Task[]>([]);
   const hasPulledOrgRef = useRef<string | null>(null);
+  const lastTaskPullCursorRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const realtimePullTimerRef = useRef<number | null>(null);
   const sseReconnectTimerRef = useRef<number | null>(null);
@@ -507,6 +531,7 @@ export function CloudSyncProvider({
       setActiveOrgIdState(null);
       setPresenceLocks([]);
       hasPulledOrgRef.current = null;
+      lastTaskPullCursorRef.current = null;
       serverTasksRef.current = [];
       claimedPresenceKeysRef.current.clear();
       return null;
@@ -721,6 +746,7 @@ export function CloudSyncProvider({
           setPresenceLocks([]);
           setConflicts([]);
           hasPulledOrgRef.current = null;
+          lastTaskPullCursorRef.current = null;
           serverTasksRef.current = [];
           claimedPresenceKeysRef.current.clear();
         }
@@ -777,6 +803,7 @@ export function CloudSyncProvider({
       setPresenceLocks([]);
       setActiveOrgIdState(null);
       hasPulledOrgRef.current = null;
+      lastTaskPullCursorRef.current = null;
       serverTasksRef.current = [];
       claimedPresenceKeysRef.current.clear();
     } finally {
@@ -905,6 +932,7 @@ export function CloudSyncProvider({
     setConflicts([]);
     setRealtimeState('disconnected');
     hasPulledOrgRef.current = null;
+    lastTaskPullCursorRef.current = null;
     serverTasksRef.current = [];
     lastSyncedHashRef.current = null;
     claimedPresenceKeysRef.current.clear();
@@ -1283,12 +1311,51 @@ export function CloudSyncProvider({
       }
 
       try {
-        const payload = await requestWithToken<{ tasks: Task[] }>(`/api/orgs/${activeOrgId}/tasks`);
-        const nextTasks = cloneTasks(payload.tasks);
+        const incrementalSince =
+          !forcePull && hasPulledOrgRef.current === activeOrgId
+            ? lastTaskPullCursorRef.current
+            : null;
+        const query = new URLSearchParams();
+        if (incrementalSince) {
+          query.set('since', incrementalSince);
+        }
+        const pullPath = query.size
+          ? `/api/orgs/${activeOrgId}/tasks?${query.toString()}`
+          : `/api/orgs/${activeOrgId}/tasks`;
+        let payload = await requestWithToken<TaskPullResponse>(pullPath);
+        let useIncrementalMerge = Boolean(incrementalSince);
+
+        // A truncated incremental response can miss intermediate updates; resync full snapshot.
+        if (useIncrementalMerge && payload.hasMore) {
+          payload = await requestWithToken<TaskPullResponse>(`/api/orgs/${activeOrgId}/tasks`);
+          useIncrementalMerge = false;
+        }
+
+        const nextTasks = useIncrementalMerge
+          ? (() => {
+              let mergedTasks = cloneTasks(serverTasksRef.current);
+              for (const task of payload.tasks) {
+                mergedTasks = upsertTaskById(mergedTasks, task);
+              }
+              const deletedIds = Array.isArray(payload.deletedTaskIds)
+                ? new Set(
+                    payload.deletedTaskIds
+                      .map((taskId) => (typeof taskId === 'string' ? taskId : ''))
+                      .filter(Boolean)
+                  )
+                : null;
+              if (deletedIds && deletedIds.size > 0) {
+                mergedTasks = mergedTasks.filter((task) => !deletedIds.has(task.id));
+              }
+              return mergedTasks;
+            })()
+          : cloneTasks(payload.tasks);
         const nextHash = computeTaskHash(nextTasks);
         const currentHash = computeTaskHash(tasksRef.current);
         serverTasksRef.current = nextTasks;
         hasPulledOrgRef.current = activeOrgId;
+        lastTaskPullCursorRef.current =
+          payload.nextSince ?? payload.serverTime ?? lastTaskPullCursorRef.current;
         skipNextPushRef.current = currentHash !== nextHash;
         replaceTasksRef.current(nextTasks, { clearHistory: true });
         lastSyncedHashRef.current = nextHash;
@@ -1382,6 +1449,7 @@ export function CloudSyncProvider({
 
         const baseTask = baseById.get(localTask.id);
         if (!baseTask) {
+          getTaskVersionForSync(localTask, 'push.create');
           try {
             const createdPayload = await requestWithToken<{ task: Task }>(
               `/api/orgs/${activeOrgId}/tasks`,
@@ -1405,7 +1473,7 @@ export function CloudSyncProvider({
           continue;
         }
 
-        const ifVersion = baseTask.version ?? 1;
+        const ifVersion = getTaskVersionForSync(baseTask, 'push.update');
         try {
           const updatedPayload = await requestWithToken<{ task: Task }>(
             `/api/orgs/${activeOrgId}/tasks/${localTask.id}`,
@@ -1436,7 +1504,7 @@ export function CloudSyncProvider({
                 method: 'PUT',
                 body: {
                   ...toTaskPayload(mergeResult.mergedTask),
-                  ifVersion: conflict.serverTask.version ?? 1,
+                  ifVersion: getTaskVersionForSync(conflict.serverTask, 'push.merge-auto'),
                 },
               }
             );
@@ -1462,7 +1530,7 @@ export function CloudSyncProvider({
         if (localById.has(baseTask.id)) continue;
         try {
           await requestWithToken(
-            `/api/orgs/${activeOrgId}/tasks/${baseTask.id}?ifVersion=${baseTask.version ?? 1}`,
+            `/api/orgs/${activeOrgId}/tasks/${baseTask.id}?ifVersion=${getTaskVersionForSync(baseTask, 'push.delete')}`,
             {
               method: 'DELETE',
             }
@@ -1591,23 +1659,23 @@ export function CloudSyncProvider({
       clearSyncIssue();
       try {
         if (conflict.conflictingFields.includes('delete')) {
-          await requestWithToken(
-            `/api/orgs/${activeOrgId}/tasks/${taskId}?ifVersion=${conflict.serverTask.version ?? 1}`,
-            {
-              method: 'DELETE',
-            }
-          );
+        await requestWithToken(
+          `/api/orgs/${activeOrgId}/tasks/${taskId}?ifVersion=${getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.delete')}`,
+          {
+            method: 'DELETE',
+          }
+        );
         } else {
           await requestWithToken<{ task: Task }>(`/api/orgs/${activeOrgId}/tasks/${taskId}`, {
-            method: 'PUT',
-            body: {
-              ...toTaskPayload(conflict.localTask),
-              ifVersion: conflict.serverTask.version ?? 1,
-              conflictResolution: {
-                strategy: 'keep_mine',
-                fields: conflict.conflictingFields,
+              method: 'PUT',
+              body: {
+                ...toTaskPayload(conflict.localTask),
+                ifVersion: getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.update'),
+                conflictResolution: {
+                  strategy: 'keep_mine',
+                  fields: conflict.conflictingFields,
+                },
               },
-            },
           });
         }
 
@@ -1723,7 +1791,7 @@ export function CloudSyncProvider({
           method: 'PUT',
           body: {
             ...toTaskPayload(mergedTask),
-            ifVersion: conflict.serverTask.version ?? 1,
+            ifVersion: getTaskVersionForSync(conflict.serverTask, 'conflict.merge'),
             conflictResolution: {
               strategy: 'merge',
               fields: conflict.conflictingFields,
@@ -1824,6 +1892,14 @@ export function CloudSyncProvider({
     }
     void refreshPresence();
   }, [enabled, activeOrgId, refreshPresence]);
+
+  useEffect(() => {
+    if (cloudModeEnabled) return;
+    if (conflicts.length === 0 && presenceLocks.length === 0) return;
+    setConflicts([]);
+    setPresenceLocks([]);
+    claimedPresenceKeysRef.current.clear();
+  }, [cloudModeEnabled, conflicts.length, presenceLocks.length]);
 
   useEffect(() => {
     if (eventSourceRef.current) {
@@ -2119,6 +2195,7 @@ export function CloudSyncProvider({
       }
       setActiveOrgIdState(orgId);
       hasPulledOrgRef.current = null;
+      lastTaskPullCursorRef.current = null;
       serverTasksRef.current = [];
       lastSyncedHashRef.current = null;
       skipNextPushRef.current = false;
@@ -2136,6 +2213,7 @@ export function CloudSyncProvider({
     realtimeState === 'connected' ? 'sse' : pollingActive ? 'polling' : 'disconnected';
   const activeOrgRole = normalizeOrgRole(orgs.find((org) => org.id === activeOrgId)?.role ?? null);
   const isCloudOrgMode = enabled && Boolean(token && activeOrgId);
+  const activeConflicts = useMemo(() => (enabled ? conflicts : []), [enabled, conflicts]);
   const canWriteTasks =
     !isCloudOrgMode ||
     activeOrgRole === 'owner' ||
@@ -2143,8 +2221,8 @@ export function CloudSyncProvider({
     activeOrgRole === 'member';
   const canDeleteTasks = !isCloudOrgMode || activeOrgRole === 'owner' || activeOrgRole === 'admin';
   const isTaskConflictLocked = useCallback(
-    (taskId: string) => conflicts.some((conflict) => conflict.taskId === taskId),
-    [conflicts]
+    (taskId: string) => enabled && conflicts.some((conflict) => conflict.taskId === taskId),
+    [enabled, conflicts]
   );
   const openConflictResolver = useCallback((taskId: string) => {
     requestOpenConflictResolver(taskId);
@@ -2169,7 +2247,7 @@ export function CloudSyncProvider({
       canDeleteTasks,
       isTaskConflictLocked,
       openConflictResolver,
-      conflicts,
+      conflicts: activeConflicts,
       presenceLocks,
       setAutoSync,
       setActiveOrgId,
@@ -2219,7 +2297,7 @@ export function CloudSyncProvider({
       canDeleteTasks,
       isTaskConflictLocked,
       openConflictResolver,
-      conflicts,
+      activeConflicts,
       presenceLocks,
       setAutoSync,
       setActiveOrgId,

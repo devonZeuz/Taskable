@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { useDrop } from 'react-dnd';
 import { toast } from 'sonner';
 import { Task, useTasks } from '../context/TaskContext';
-import { APP_THEME_TASK_SWATCHES, useAppTheme } from '../context/AppThemeContext';
 import TaskCard from './TaskCard';
 import QuickAddButton from './QuickAddButton';
 import { useWorkday } from '../context/WorkdayContext';
@@ -66,10 +65,9 @@ export default function DayColumn({
   scheduleTasks,
 }: DayColumnProps) {
   const { tasks, addTask, moveTask, moveTasksAtomic, updateTask } = useTasks();
-  const { theme } = useAppTheme();
   const { workday } = useWorkday();
   const {
-    preferences: { autoPlaceOnConflict, defaultTaskDurationMinutes, soundEffectsEnabled },
+    preferences: { defaultTaskDurationMinutes, soundEffectsEnabled, uiDensity },
   } = useUserPreferences();
   const { user, presenceLocks, activeOrgRole, claimPresenceLock, conflicts } = useCloudSync();
   const deterministicDndMode = isDeterministicDndMode();
@@ -86,17 +84,16 @@ export default function DayColumn({
   const hourCount = Math.ceil(timeSlots.length / slotsPerHour);
   const gapCount = Math.max(0, hourCount - 1);
   const gridWidth = timeSlots.length * slotWidth + gapCount * hourGap;
-  const laneMinHeight = 178;
-  const laneGap = 10;
-  const rowPadding = 10;
-  const staggerOffset = 24;
-  const laneTrackHeight = laneMinHeight + staggerOffset;
-  const taskSpacing = 12;
+  const compactDensity = uiDensity === 'compact';
+  const laneMinHeight = compactDensity ? 154 : 178;
+  const laneStaggerOffset = compactDensity ? 16 : 18;
+  const laneGap = compactDensity ? 8 : 10;
+  const rowPadding = compactDensity ? 8 : 10;
+  const taskSpacing = compactDensity ? 16 : 18;
   const taskInset = taskSpacing / 2;
   const workStartMinutes = workday.startHour * 60;
   const workdayMinutes = getWorkdayMinutes(workday);
   const workEndMinutes = workStartMinutes + workdayMinutes;
-  const defaultExternalColor = APP_THEME_TASK_SWATCHES[theme][0]?.value ?? '#8d929c';
   const normalizedDefaultDuration = Math.max(
     slotMinutes,
     Math.round(defaultTaskDurationMinutes / slotMinutes) * slotMinutes
@@ -239,38 +236,31 @@ export default function DayColumn({
   const getPreviewLaneIndex = useCallback(
     (startMinutes: number, durationMinutes: number, excludeTaskId?: string) => {
       const endMinutes = startMinutes + durationMinutes;
-      const lanes: Array<Array<{ startMinutes: number; endMinutes: number }>> = [];
-      const sorted = [...dayTasks].sort(
-        (a, b) => getTaskInterval(a).startMinutes - getTaskInterval(b).startMinutes
-      );
+      const overlappingIntervals = [...dayTasks]
+        .sort((a, b) => getTaskInterval(a).startMinutes - getTaskInterval(b).startMinutes)
+        .reduce<Array<{ startMinutes: number; endMinutes: number }>>((accumulator, task) => {
+          if (excludeTaskId && task.id === excludeTaskId) return accumulator;
+          const interval = getTaskInterval(task);
+          const overlaps = startMinutes < interval.endMinutes && endMinutes > interval.startMinutes;
+          if (overlaps) {
+            accumulator.push(interval);
+          }
+          return accumulator;
+        }, []);
 
-      sorted.forEach((task) => {
-        if (excludeTaskId && task.id === excludeTaskId) return;
-        const interval = getTaskInterval(task);
-        let laneIndex = lanes.findIndex((lane) =>
-          lane.every(
-            (existing) =>
-              interval.startMinutes >= existing.endMinutes ||
-              interval.endMinutes <= existing.startMinutes
-          )
-        );
-
+      const laneEnds: number[] = [];
+      overlappingIntervals.forEach((interval) => {
+        let laneIndex = laneEnds.findIndex((end) => interval.startMinutes >= end);
         if (laneIndex === -1) {
-          laneIndex = lanes.length;
-          lanes.push([interval]);
+          laneIndex = laneEnds.length;
+          laneEnds.push(interval.endMinutes);
         } else {
-          lanes[laneIndex].push(interval);
+          laneEnds[laneIndex] = interval.endMinutes;
         }
       });
 
-      for (let i = 0; i < lanes.length; i++) {
-        const conflicts = lanes[i].some(
-          (existing) => startMinutes < existing.endMinutes && endMinutes > existing.startMinutes
-        );
-        if (!conflicts) return i;
-      }
-
-      return lanes.length;
+      const previewLane = laneEnds.findIndex((end) => startMinutes >= end);
+      return previewLane === -1 ? laneEnds.length : previewLane;
     },
     [dayTasks]
   );
@@ -559,31 +549,6 @@ export default function DayColumn({
           return;
         }
 
-        if (!shouldShove && overlapCount > 0 && autoPlaceOnConflict) {
-          const nextSlot = findNextAvailableSlotAfter(
-            scheduleScopeTasks,
-            day,
-            durationMinutes,
-            startMinutes + slotMinutes,
-            draggedTask.id,
-            workday
-          );
-          if (nextSlot) {
-            moveTask(item.id, combineDayAndTime(day, nextSlot.startTime).toISOString());
-            toast.success(`Conflict detected, auto-placed at ${nextSlot.startTime}.`);
-            if (soundEffectsEnabled) {
-              playCalendarSnapSound();
-            }
-            hoverIntentRef.current = { key: '', since: 0 };
-            setShoveIntentActive(false);
-            setHoverPreview(null);
-            logDropSample('auto_placed_after_conflict', {
-              overlapCount,
-            });
-            return;
-          }
-        }
-
         moveTask(item.id, startDateTime);
         if (overlapCount > 0) {
           toast.success(`Task stacked at ${startTime}.`);
@@ -621,7 +586,6 @@ export default function DayColumn({
       isShiftPressed,
       getPreviewLaneIndex,
       overlapsBlockedWindow,
-      autoPlaceOnConflict,
       day,
       dayLockedByOther,
       dayPresenceLock,
@@ -750,7 +714,6 @@ export default function DayColumn({
         description: capture.description ?? '',
         startDateTime,
         durationMinutes,
-        color: defaultExternalColor,
         subtasks: [],
         type: 'quick',
         assignedTo,
@@ -758,6 +721,7 @@ export default function DayColumn({
         status: 'scheduled',
         executionStatus: 'idle',
         actualMinutes: 0,
+        version: 0,
       });
 
       toast.success(`Captured email at ${minutesToTime(startMinutes)}.`);
@@ -775,7 +739,6 @@ export default function DayColumn({
       addTask,
       day,
       defaultAssignee,
-      defaultExternalColor,
       getMinutesFromClientX,
       normalizedDefaultDuration,
       onEdit,
@@ -792,34 +755,68 @@ export default function DayColumn({
       (a, b) => getTaskInterval(a).startMinutes - getTaskInterval(b).startMinutes
     );
     const layoutById = new Map<string, number>();
-    const sequenceById = new Map<string, number>();
-    const laneEnds: number[] = [];
-    const laneSequenceCursor: number[] = [];
+    const stackedById = new Map<string, boolean>();
+    let laneCount = 1;
+
+    const overlapGroups: Task[][] = [];
+    let currentGroup: Task[] = [];
+    let currentGroupEnd = Number.NEGATIVE_INFINITY;
 
     sortedTasks.forEach((task) => {
       const interval = getTaskInterval(task);
-      let laneIndex = laneEnds.findIndex((end) => interval.startMinutes >= end);
-
-      if (laneIndex === -1) {
-        laneIndex = laneEnds.length;
-        laneEnds.push(interval.endMinutes);
-      } else {
-        laneEnds[laneIndex] = interval.endMinutes;
+      if (currentGroup.length === 0) {
+        currentGroup.push(task);
+        currentGroupEnd = interval.endMinutes;
+        return;
       }
 
-      layoutById.set(task.id, laneIndex);
-      const currentSequence = laneSequenceCursor[laneIndex] ?? 0;
-      sequenceById.set(task.id, currentSequence);
-      laneSequenceCursor[laneIndex] = currentSequence + 1;
+      if (interval.startMinutes < currentGroupEnd) {
+        currentGroup.push(task);
+        currentGroupEnd = Math.max(currentGroupEnd, interval.endMinutes);
+        return;
+      }
+
+      overlapGroups.push(currentGroup);
+      currentGroup = [task];
+      currentGroupEnd = interval.endMinutes;
     });
+
+    if (currentGroup.length > 0) {
+      overlapGroups.push(currentGroup);
+    }
+
+    overlapGroups.forEach((group) => {
+      const laneEnds: number[] = [];
+      const isStackedGroup = group.length > 1;
+
+      group.forEach((task) => {
+        const interval = getTaskInterval(task);
+        let laneIndex = laneEnds.findIndex((end) => interval.startMinutes >= end);
+
+        if (laneIndex === -1) {
+          laneIndex = laneEnds.length;
+          laneEnds.push(interval.endMinutes);
+        } else {
+          laneEnds[laneIndex] = interval.endMinutes;
+        }
+
+        layoutById.set(task.id, laneIndex);
+        stackedById.set(task.id, isStackedGroup);
+      });
+
+      laneCount = Math.max(laneCount, laneEnds.length);
+    });
+
+    const laneTrackHeight = laneMinHeight + laneStaggerOffset;
 
     return {
       tasks: sortedTasks,
       layoutById,
-      sequenceById,
-      laneCount: Math.max(1, laneEnds.length),
+      stackedById,
+      laneCount: Math.max(1, laneCount),
+      laneTrackHeight,
     };
-  }, [dayTasks]);
+  }, [dayTasks, laneMinHeight, laneStaggerOffset]);
 
   const nowIndicatorX = useMemo(() => {
     if (!isTodayColumn) return null;
@@ -924,13 +921,6 @@ export default function DayColumn({
         workday,
         slotMinutes
       );
-      const overlapCount = countOverlapsAtTarget(
-        scheduleScopeTasks,
-        day,
-        startMinutes,
-        durationMinutes,
-        draggedTask.id
-      );
       const shouldShove = Boolean(args.shove);
 
       if (shouldShove) {
@@ -946,22 +936,6 @@ export default function DayColumn({
           playCalendarSnapSound();
         }
         return true;
-      } else if (overlapCount > 0 && autoPlaceOnConflict) {
-        const nextSlot = findNextAvailableSlotAfter(
-          scheduleScopeTasks,
-          day,
-          durationMinutes,
-          startMinutes + slotMinutes,
-          draggedTask.id,
-          workday
-        );
-        if (nextSlot) {
-          moveTask(args.taskId, combineDayAndTime(day, nextSlot.startTime).toISOString());
-          if (soundEffectsEnabled) {
-            playCalendarSnapSound();
-          }
-          return true;
-        }
       }
 
       moveTask(args.taskId, combineDayAndTime(day, args.startTime).toISOString());
@@ -1004,7 +978,6 @@ export default function DayColumn({
       delete host.__TASKABLE_DND_HOOKS__.resizeHandlers[day];
     };
   }, [
-    autoPlaceOnConflict,
     day,
     deterministicDndMode,
     moveTask,
@@ -1029,7 +1002,10 @@ export default function DayColumn({
       onDragOver={handleExternalDragOver}
       onDragLeave={handleExternalDragLeave}
       onDrop={handleExternalDrop}
-      style={{ width: `${gridWidth}px`, minHeight: `${laneTrackHeight + rowPadding * 2}px` }}
+      style={{
+        width: `${gridWidth}px`,
+        minHeight: `${laneLayout.laneTrackHeight + rowPadding * 2}px`,
+      }}
     >
       {dayPresenceLock && (
         <div className="pointer-events-none absolute left-3 top-2 z-[7]">
@@ -1089,7 +1065,7 @@ export default function DayColumn({
         className="relative grid"
         style={{
           gridTemplateColumns,
-          gridAutoRows: `minmax(${laneTrackHeight}px, auto)`,
+          gridAutoRows: `minmax(${laneLayout.laneTrackHeight}px, auto)`,
           rowGap: `${laneGap}px`,
           padding: `${rowPadding}px 0`,
         }}
@@ -1103,7 +1079,7 @@ export default function DayColumn({
             return (
               <div
                 key={`shove-preview-${move.task.id}-${index}`}
-                className="pointer-events-none rounded-[14px] border-2 border-dashed bg-transparent"
+                className="pointer-events-none ui-v1-radius-md border-2 border-dashed bg-transparent"
                 style={{
                   gridColumn: `${startCol} / ${endCol}`,
                   gridRow: `${(laneLayout.layoutById.get(move.task.id) ?? 0) + 1}`,
@@ -1128,7 +1104,7 @@ export default function DayColumn({
 
             return (
               <div
-                className="pointer-events-none rounded-[14px] border-2 border-dashed bg-transparent"
+                className="pointer-events-none ui-v1-radius-md border-2 border-dashed bg-transparent"
                 style={{
                   gridColumn: `${startCol} / ${endCol}`,
                   gridRow: `${hoverPreview.laneIndex + 1}`,
@@ -1182,11 +1158,17 @@ export default function DayColumn({
           const isBlockTask = task.type === 'block';
           const blockSpanHeight =
             laneLayout.laneCount > 1
-              ? laneLayout.laneCount * laneTrackHeight + (laneLayout.laneCount - 1) * laneGap
+              ? laneLayout.laneCount * laneLayout.laneTrackHeight +
+                (laneLayout.laneCount - 1) * laneGap
               : laneMinHeight;
           const laneIndex = laneLayout.layoutById.get(task.id) ?? 0;
-          const laneSequence = laneLayout.sequenceById.get(task.id) ?? 0;
-          const staggerY = laneSequence % 2 === 1 ? staggerOffset : 0;
+          const startSlotIndex = Math.max(
+            0,
+            Math.round((interval.startMinutes - workStartMinutes) / slotMinutes)
+          );
+          const hourBandIndex = Math.floor(startSlotIndex / slotsPerHour);
+          const staggerOffsetPx =
+            (hourBandIndex + laneIndex) % 2 === 1 ? laneStaggerOffset : 0;
 
           return (
             <TaskCard
@@ -1207,7 +1189,8 @@ export default function DayColumn({
                 minHeight: isBlockTask ? `${blockSpanHeight}px` : `${laneMinHeight}px`,
                 marginLeft: `${leftInset}px`,
                 marginRight: `${rightInset}px`,
-                marginTop: isBlockTask ? '0px' : `${staggerY}px`,
+                position: 'relative',
+                top: `${staggerOffsetPx}px`,
                 zIndex: isBlockTask ? 8 : 2,
               }}
             />
@@ -1225,7 +1208,7 @@ export default function DayColumn({
 
       {(isOver && canDrop) || externalDragOver ? (
         <div
-          className="pointer-events-none absolute inset-1 rounded-[22px] border-2 border-dashed"
+          className="pointer-events-none absolute inset-1 ui-v1-radius-xl border-2 border-dashed"
           style={{ borderColor: 'var(--hud-outline)' }}
         />
       ) : null}

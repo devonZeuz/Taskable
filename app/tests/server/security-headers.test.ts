@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -6,6 +7,7 @@ const API_PORT = 41973;
 const API_BASE = `http://127.0.0.1:${API_PORT}`;
 const ALLOWED_ORIGIN = 'http://allowed.example';
 const DENIED_ORIGIN = 'http://denied.example';
+const TEST_DB_PATH = path.join(os.tmpdir(), `tareva-security-headers-${Date.now()}.db`);
 let serverProcess: ChildProcessWithoutNullStreams | null = null;
 
 async function waitForServerReady(timeoutMs = 10000) {
@@ -32,6 +34,7 @@ beforeAll(async () => {
       JWT_SECRET: 'taskable-security-test-secret-with-strong-length-123456',
       CORS_ALLOWED_ORIGINS: `${ALLOWED_ORIGIN},http://localhost:5173`,
       CLIENT_ORIGIN: 'http://localhost:5173',
+      TASKABLE_DB_PATH: TEST_DB_PATH,
     },
     stdio: 'pipe',
   });

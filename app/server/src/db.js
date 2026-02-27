@@ -16,6 +16,13 @@ const configuredDbPath = configuredDbPathRaw
 const dbPath = configuredDbPath ?? path.join(dataDir, 'taskable.db');
 const dbDir = dbPath === ':memory:' ? null : path.dirname(dbPath);
 
+if (process.env.NODE_ENV === 'production' && dbPath !== ':memory:' && !configuredDbPath) {
+  console.error(
+    '[db] FATAL: TASKABLE_DB_PATH is required in production. Configure a persistent disk path (for example, /data/tareva.db).'
+  );
+  process.exit(1);
+}
+
 if (dbDir && !fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
@@ -236,6 +243,366 @@ db.prepare(
 db.prepare(
   "UPDATE org_members SET role = 'member' WHERE role NOT IN ('owner', 'admin', 'member', 'viewer') OR role IS NULL"
 ).run();
+
+function normalizeOrgScope(orgIds) {
+  if (!Array.isArray(orgIds)) return [];
+  const normalized = orgIds
+    .map((orgId) => (typeof orgId === 'string' ? orgId.trim() : ''))
+    .filter((orgId) => orgId.length > 0);
+  return Array.from(new Set(normalized));
+}
+
+function buildInClause(values) {
+  return values.map(() => '?').join(', ');
+}
+
+export function getOwnedOrgIdsForUser(userId) {
+  if (!userId) return [];
+  return db
+    .prepare(
+      `SELECT org_id
+       FROM org_members
+       WHERE user_id = ? AND role = 'owner'
+       ORDER BY joined_at ASC`
+    )
+    .all(userId)
+    .map((row) => row.org_id);
+}
+
+export function summarizeScopedUsers({ orgIds, activeSessionAfterIso }) {
+  const scope = normalizeOrgScope(orgIds);
+  if (scope.length === 0) {
+    return {
+      totalUsers: 0,
+      verifiedCount: 0,
+      mfaEnabledCount: 0,
+      activeSessionsCount: 0,
+    };
+  }
+
+  const inClause = buildInClause(scope);
+  const usersSummaryRow = db
+    .prepare(
+      `WITH scoped_users AS (
+         SELECT DISTINCT user_id
+         FROM org_members
+         WHERE org_id IN (${inClause})
+       )
+       SELECT
+         COUNT(*) AS totalUsers,
+         SUM(CASE WHEN u.email_verified_at IS NOT NULL THEN 1 ELSE 0 END) AS verifiedCount,
+         SUM(CASE WHEN u.mfa_enabled = 1 THEN 1 ELSE 0 END) AS mfaEnabledCount
+       FROM users u
+       JOIN scoped_users su ON su.user_id = u.id`
+    )
+    .get(...scope);
+
+  const activeSessionsRow = db
+    .prepare(
+      `SELECT COUNT(DISTINCT s.id) AS count
+       FROM user_sessions s
+       JOIN org_members m ON m.user_id = s.user_id
+       WHERE m.org_id IN (${inClause})
+         AND s.revoked_at IS NULL
+         AND s.expires_at > ?`
+    )
+    .get(...scope, activeSessionAfterIso);
+
+  return {
+    totalUsers: usersSummaryRow?.totalUsers ?? 0,
+    verifiedCount: usersSummaryRow?.verifiedCount ?? 0,
+    mfaEnabledCount: usersSummaryRow?.mfaEnabledCount ?? 0,
+    activeSessionsCount: activeSessionsRow?.count ?? 0,
+  };
+}
+
+export function summarizeScopedOrgs({ orgIds }) {
+  const scope = normalizeOrgScope(orgIds);
+  if (scope.length === 0) {
+    return {
+      totalOrgs: 0,
+      totalMembers: 0,
+      totalTasks: 0,
+    };
+  }
+
+  const inClause = buildInClause(scope);
+  const totalMembersRow = db
+    .prepare(`SELECT COUNT(*) AS count FROM org_members WHERE org_id IN (${inClause})`)
+    .get(...scope);
+  const totalTasksRow = db
+    .prepare(`SELECT COUNT(*) AS count FROM tasks WHERE org_id IN (${inClause})`)
+    .get(...scope);
+
+  return {
+    totalOrgs: scope.length,
+    totalMembers: totalMembersRow?.count ?? 0,
+    totalTasks: totalTasksRow?.count ?? 0,
+  };
+}
+
+export function listScopedUsersForAdmin({
+  orgIds,
+  query = '',
+  limit = 50,
+  offset = 0,
+  resendSinceIso,
+}) {
+  const scope = normalizeOrgScope(orgIds);
+  if (scope.length === 0) {
+    return { total: 0, users: [] };
+  }
+
+  const inClause = buildInClause(scope);
+  const normalizedQuery = query.trim().toLowerCase();
+  const likePattern = normalizedQuery ? `%${normalizedQuery}%` : '';
+
+  const totalRow = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM (
+         SELECT DISTINCT u.id
+         FROM users u
+         JOIN org_members m ON m.user_id = u.id
+         WHERE m.org_id IN (${inClause})
+           AND (? = '' OR lower(u.email) LIKE ?)
+       )`
+    )
+    .get(...scope, likePattern, likePattern);
+
+  const users = db
+    .prepare(
+      `SELECT
+         u.id,
+         u.email,
+         u.created_at AS createdAt,
+         u.email_verified_at AS emailVerifiedAt,
+         u.mfa_enabled AS mfaEnabled,
+         MAX(s.last_used_at) AS lastLoginAt,
+         COUNT(DISTINCT m.org_id) AS orgCount,
+         (
+           SELECT COUNT(*)
+           FROM ops_events oe
+           WHERE oe.event_type = 'email.verification.resend'
+             AND oe.code = ('target:' || u.id)
+             AND oe.created_at >= ?
+         ) AS resendVerificationCountLast24h
+       FROM users u
+       JOIN org_members m ON m.user_id = u.id
+       LEFT JOIN user_sessions s ON s.user_id = u.id
+       WHERE m.org_id IN (${inClause})
+         AND (? = '' OR lower(u.email) LIKE ?)
+       GROUP BY u.id
+       ORDER BY COALESCE(MAX(s.last_used_at), u.created_at) DESC, u.email ASC
+       LIMIT ? OFFSET ?`
+    )
+    .all(resendSinceIso, ...scope, likePattern, likePattern, limit, offset);
+
+  return {
+    total: totalRow?.count ?? 0,
+    users,
+  };
+}
+
+export function listScopedOrgsForAdmin({ orgIds, limit = 50, offset = 0, conflictSinceIso }) {
+  const scope = normalizeOrgScope(orgIds);
+  if (scope.length === 0) {
+    return { total: 0, orgs: [] };
+  }
+
+  const inClause = buildInClause(scope);
+  const orgs = db
+    .prepare(
+      `SELECT
+         o.id AS orgId,
+         o.name,
+         o.created_at AS createdAt,
+         (
+           SELECT COUNT(*)
+           FROM org_members m
+           WHERE m.org_id = o.id
+         ) AS memberCount,
+         (
+           SELECT COUNT(*)
+           FROM tasks t
+           WHERE t.org_id = o.id
+         ) AS taskCount,
+         (
+           SELECT COUNT(*)
+           FROM ops_events oe
+           WHERE oe.org_id = o.id
+             AND oe.event_type = 'conflict_entered'
+             AND oe.created_at >= ?
+         ) AS conflictCountLast7d,
+         (
+           SELECT MAX(updated_at)
+           FROM tasks tx
+           WHERE tx.org_id = o.id
+         ) AS lastTaskActivityAt,
+         (
+           SELECT MAX(created_at)
+           FROM ops_events ox
+           WHERE ox.org_id = o.id
+         ) AS lastOpsActivityAt
+       FROM orgs o
+       WHERE o.id IN (${inClause})
+       ORDER BY o.created_at DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(conflictSinceIso, ...scope, limit, offset);
+
+  return {
+    total: scope.length,
+    orgs,
+  };
+}
+
+export function fetchScopedConflictEvents({ orgIds, sinceIso = null }) {
+  const scope = normalizeOrgScope(orgIds);
+  if (scope.length === 0) {
+    return [];
+  }
+
+  const inClause = buildInClause(scope);
+  const args = [...scope];
+  let where = `org_id IN (${inClause}) AND event_type IN ('conflict_entered', 'conflict_resolved')`;
+  if (sinceIso) {
+    where += ' AND created_at >= ?';
+    args.push(sinceIso);
+  }
+
+  return db
+    .prepare(
+      `SELECT org_id, user_id, event_type, metadata_json, created_at
+       FROM ops_events
+       WHERE ${where}
+       ORDER BY created_at ASC
+       LIMIT 10000`
+    )
+    .all(...args);
+}
+
+export function fetchScopedOperationalEvents({ orgIds, sinceIso, eventTypes = [] }) {
+  const scope = normalizeOrgScope(orgIds);
+  if (scope.length === 0) {
+    return [];
+  }
+
+  const orgInClause = buildInClause(scope);
+  const args = [...scope, sinceIso];
+  let where = `org_id IN (${orgInClause}) AND created_at >= ?`;
+
+  if (Array.isArray(eventTypes) && eventTypes.length > 0) {
+    const eventScope = eventTypes
+      .map((eventType) => (typeof eventType === 'string' ? eventType.trim() : ''))
+      .filter((eventType) => eventType.length > 0);
+    if (eventScope.length > 0) {
+      const eventInClause = buildInClause(eventScope);
+      where += ` AND event_type IN (${eventInClause})`;
+      args.push(...eventScope);
+    }
+  }
+
+  return db
+    .prepare(
+      `SELECT org_id, user_id, event_type, duration_ms, value, status, code, source, metadata_json, created_at
+       FROM ops_events
+       WHERE ${where}
+       ORDER BY created_at DESC
+       LIMIT 10000`
+    )
+    .all(...args);
+}
+
+export function summarizeScopedEmailEvents({ orgIds, sinceIso }) {
+  const scope = normalizeOrgScope(orgIds);
+  if (scope.length === 0) {
+    return {
+      verification: { attempted: 0, sent: 0, failed: 0, skipped: 0 },
+      reset: { attempted: 0, sent: 0, failed: 0, skipped: 0 },
+      available: true,
+    };
+  }
+
+  const inClause = buildInClause(scope);
+  const rows = db
+    .prepare(
+      `SELECT event_type, code, COUNT(*) AS count
+       FROM ops_events
+       WHERE created_at >= ?
+         AND event_type IN ('email.verification.send', 'email.reset.send')
+         AND user_id IN (
+           SELECT DISTINCT user_id
+           FROM org_members
+           WHERE org_id IN (${inClause})
+         )
+       GROUP BY event_type, code`
+    )
+    .all(sinceIso, ...scope);
+
+  const summary = {
+    verification: { attempted: 0, sent: 0, failed: 0, skipped: 0 },
+    reset: { attempted: 0, sent: 0, failed: 0, skipped: 0 },
+    available: true,
+  };
+
+  rows.forEach((row) => {
+    const target =
+      row.event_type === 'email.verification.send' ? summary.verification : summary.reset;
+    target.attempted += row.count ?? 0;
+    if (row.code === 'sent') target.sent += row.count ?? 0;
+    if (row.code === 'failed') target.failed += row.count ?? 0;
+    if (row.code === 'skipped') target.skipped += row.count ?? 0;
+  });
+
+  return summary;
+}
+
+export function findUserForScopedAdmin({ userId, orgIds }) {
+  const scope = normalizeOrgScope(orgIds);
+  if (!userId || scope.length === 0) return null;
+
+  const inClause = buildInClause(scope);
+  return db
+    .prepare(
+      `SELECT
+         u.id,
+         u.email,
+         u.name,
+         u.email_verified_at AS emailVerifiedAt,
+         (
+           SELECT om.org_id
+           FROM org_members om
+           WHERE om.user_id = u.id
+             AND om.org_id IN (${inClause})
+           ORDER BY om.joined_at ASC
+           LIMIT 1
+         ) AS scopedOrgId
+       FROM users u
+       WHERE u.id = ?
+         AND EXISTS (
+           SELECT 1
+           FROM org_members om
+           WHERE om.user_id = u.id
+             AND om.org_id IN (${inClause})
+         )`
+    )
+    .get(...scope, userId, ...scope);
+}
+
+export function countVerificationResendsForUser({ targetUserId, sinceIso }) {
+  if (!targetUserId || !sinceIso) return 0;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM ops_events
+       WHERE event_type = 'email.verification.resend'
+         AND code = ?
+         AND created_at >= ?`
+    )
+    .get(`target:${targetUserId}`, sinceIso);
+  return row?.count ?? 0;
+}
 
 export function createId(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;

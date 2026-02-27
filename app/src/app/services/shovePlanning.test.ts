@@ -17,6 +17,7 @@ function makeTask(id: string, startDateTime: string, durationMinutes: number): T
     subtasks: [],
     type: 'quick',
     status: 'scheduled',
+    version: 1,
   };
 }
 

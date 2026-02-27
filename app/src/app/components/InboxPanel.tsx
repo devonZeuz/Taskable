@@ -2,7 +2,6 @@ import { useMemo, useState, type DragEvent } from 'react';
 import { useDrop } from 'react-dnd';
 import { toast } from 'sonner';
 import { Task, useTasks } from '../context/TaskContext';
-import { APP_THEME_TASK_SWATCHES, useAppTheme } from '../context/AppThemeContext';
 import TaskCard from './TaskCard';
 import { hasExternalPayload, parseExternalDrop } from '../services/externalDrop';
 import { recordOperationalEvent } from '../services/operationalTelemetry';
@@ -11,13 +10,17 @@ interface InboxPanelProps {
   title?: string;
   tasks: Task[];
   onEdit: (task: Task) => void;
+  variant?: 'default' | 'sidebar';
 }
 
-export default function InboxPanel({ title = 'Inbox', tasks, onEdit }: InboxPanelProps) {
+export default function InboxPanel({
+  title = 'Inbox',
+  tasks,
+  onEdit,
+  variant = 'default',
+}: InboxPanelProps) {
   const { tasks: allTasks, unscheduleTask, addTask } = useTasks();
-  const { theme } = useAppTheme();
   const [externalDragOver, setExternalDragOver] = useState(false);
-  const defaultInboxColor = APP_THEME_TASK_SWATCHES[theme][0]?.value ?? '#8d929c';
   const [{ isOver }, drop] = useDrop(
     () => ({
       accept: 'TASK',
@@ -37,6 +40,7 @@ export default function InboxPanel({ title = 'Inbox', tasks, onEdit }: InboxPane
 
   const visibleTasks = useMemo(() => tasks.filter((task) => !task.startDateTime), [tasks]);
   const highlighted = isOver || externalDragOver;
+  const isSidebar = variant === 'sidebar';
 
   const handleNativeDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!hasExternalPayload(event.dataTransfer)) return;
@@ -72,7 +76,6 @@ export default function InboxPanel({ title = 'Inbox', tasks, onEdit }: InboxPane
       description: capture.description ?? '',
       startDateTime: undefined,
       durationMinutes: 60,
-      color: defaultInboxColor,
       subtasks: [],
       type: 'quick',
       assignedTo: undefined,
@@ -80,6 +83,7 @@ export default function InboxPanel({ title = 'Inbox', tasks, onEdit }: InboxPane
       status: 'inbox',
       executionStatus: 'idle',
       actualMinutes: 0,
+      version: 0,
     });
 
     toast.success('Captured into inbox.');
@@ -98,9 +102,9 @@ export default function InboxPanel({ title = 'Inbox', tasks, onEdit }: InboxPane
       onDragOver={handleNativeDragOver}
       onDragLeave={handleNativeDragLeave}
       onDrop={handleNativeDrop}
-      className={`ui-hud-panel rounded-[18px] px-5 py-4 ${
-        highlighted ? 'ring-2 ring-[color:var(--hud-outline)]' : ''
-      }`}
+      className={`ui-hud-panel ui-v1-radius-lg border border-[color:var(--hud-border)] ${
+        isSidebar ? 'flex min-h-0 flex-1 flex-col px-3 py-3' : 'px-5 py-4'
+      } ${highlighted ? 'ring-2 ring-[color:var(--hud-outline)]' : ''}`}
     >
       <div className="flex items-center justify-between">
         <div>
@@ -118,17 +122,23 @@ export default function InboxPanel({ title = 'Inbox', tasks, onEdit }: InboxPane
           create a new inbox task.
         </div>
       ) : (
-        <div className="mt-3 flex gap-3 overflow-x-auto pb-2">
+        <div
+          className={
+            isSidebar
+              ? 'mt-3 min-h-0 space-y-2 overflow-y-auto pr-1'
+              : 'mt-3 flex gap-3 overflow-x-auto pb-2'
+          }
+        >
           {visibleTasks.map((task) => (
             <TaskCard
               key={task.id}
               task={task}
               onEdit={onEdit}
-              blockHeight={148}
-              blockWidth={250}
+              blockHeight={isSidebar ? 126 : 148}
+              blockWidth={isSidebar ? 228 : 250}
               blockStyle={{
-                minWidth: '250px',
-                maxWidth: '250px',
+                minWidth: isSidebar ? '100%' : '250px',
+                maxWidth: isSidebar ? '100%' : '250px',
               }}
             />
           ))}

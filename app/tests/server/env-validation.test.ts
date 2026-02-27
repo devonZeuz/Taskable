@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
@@ -30,6 +31,7 @@ function waitForExit(processHandle: ChildProcessWithoutNullStreams, timeoutMs = 
 
 describe('server production env validation', () => {
   it('refuses to start in production when JWT_SECRET is missing', async () => {
+    const testDbPath = path.join(os.tmpdir(), `tareva-env-validation-${Date.now()}.db`);
     const output: string[] = [];
     const serverProcess = spawn('node', ['src/index.js'], {
       cwd: path.resolve(process.cwd(), 'server'),
@@ -39,6 +41,7 @@ describe('server production env validation', () => {
         PORT: '41971',
         CLIENT_ORIGIN: 'http://localhost:5173',
         JWT_SECRET: '',
+        TASKABLE_DB_PATH: testDbPath,
       },
       stdio: 'pipe',
     });

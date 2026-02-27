@@ -19,6 +19,10 @@ import {
 } from '../services/taskTimer';
 import { subscribeExecutionTicker } from '../services/executionTicker';
 import { recordTaskCompletionSample, recordTaskReschedule } from '../services/taskTelemetry';
+import { getRandomThemeColor } from '../services/taskColor';
+import { updateDurationProfileOnCompletion } from '../services/durationProfile';
+import { recordExecutionTelemetryEvent } from '../services/executionTelemetry';
+import { resolveExecutionModeV1Flag } from '../flags';
 
 export interface SubTask {
   id: string;
@@ -40,7 +44,7 @@ export interface Task {
   assignedTo?: string;
   status?: 'scheduled' | 'inbox';
   focus?: boolean;
-  version?: number;
+  version: number;
   executionVersion?: number;
   executionUpdatedAt?: string;
   executionStatus?: TaskExecutionStatus;
@@ -63,7 +67,7 @@ interface TaskContextType {
   setSelectedTaskId: (taskId: string | null) => void;
   clearSelectedTask: () => void;
   loadDemoData: () => void;
-  addTask: (task: Omit<Task, 'id'>) => Task;
+  addTask: (task: Omit<Task, 'id' | 'color'> & { color?: string }) => Task;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, startDateTime: string) => void;
@@ -238,6 +242,7 @@ function migrateLegacyTasks(legacyTasks: LegacyTask[]): Task[] {
     assignedTo: task.assignedTo,
     status: 'scheduled',
     focus: false,
+    version: 1,
     executionStatus: task.completed ? 'completed' : 'idle',
     actualMinutes: 0,
   }));
@@ -273,7 +278,7 @@ function normalizeTasks(tasks: Task[]): Task[] {
     const normalizedVersion =
       typeof task.version === 'number' && Number.isFinite(task.version) && task.version > 0
         ? Math.floor(task.version)
-        : undefined;
+        : 1;
     const normalizedExecutionVersion =
       typeof task.executionVersion === 'number' &&
       Number.isFinite(task.executionVersion) &&
@@ -378,6 +383,7 @@ const generateInitialTasks = (): Task[] => {
       assignedTo: 'user1',
       status: 'scheduled',
       focus: false,
+      version: 1,
       executionStatus: 'completed',
       actualMinutes: 58,
       completedAt: buildStartDateTime(today, '08:58'),
@@ -396,6 +402,7 @@ const generateInitialTasks = (): Task[] => {
       assignedTo: 'user1',
       status: 'scheduled',
       focus: false,
+      version: 1,
       executionStatus: 'completed',
       actualMinutes: 61,
       completedAt: buildStartDateTime(today, '10:01'),
@@ -418,6 +425,7 @@ const generateInitialTasks = (): Task[] => {
       assignedTo: 'user1',
       status: 'scheduled',
       focus: true,
+      version: 1,
       executionStatus: 'idle',
       actualMinutes: 0,
     },
@@ -481,6 +489,9 @@ function taskReducer(state: TaskState, action: TaskAction): TaskState {
 
 export function TaskProvider({ children }: { children: ReactNode }) {
   const { preferences } = useUserPreferences();
+  const executionModeV1Enabled = resolveExecutionModeV1Flag();
+  const shouldCaptureDriftTelemetry =
+    executionModeV1Enabled && Boolean(preferences.executionModeEnabled);
   const [state, dispatch] = useReducer(taskReducer, undefined, () => ({
     tasks: loadTasks(),
     undoStack: [],
@@ -595,15 +606,24 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     };
   }, [hasRunningTasks]);
 
-  const addTask = (task: Omit<Task, 'id'>): Task => {
+  const addTask = (task: Omit<Task, 'id' | 'color'> & { color?: string }): Task => {
     const isScheduled = Boolean(task.startDateTime) && task.status !== 'inbox';
+    const resolvedColor =
+      typeof task.color === 'string' && task.color.trim().length > 0
+        ? task.color
+        : getRandomThemeColor();
     const newTask: Task = {
       ...task,
+      color: resolvedColor,
       status: isScheduled ? 'scheduled' : 'inbox',
       startDateTime: isScheduled ? task.startDateTime : undefined,
       timeZone: isScheduled ? (task.timeZone ?? getLocalTimeZone()) : task.timeZone,
       id: Math.random().toString(36).substring(2, 11),
       focus: task.focus ?? false,
+      version:
+        typeof task.version === 'number' && Number.isFinite(task.version) && task.version >= 0
+          ? Math.floor(task.version)
+          : 0,
       executionStatus: task.completed ? 'completed' : (task.executionStatus ?? 'idle'),
       actualMinutes: Math.max(0, task.actualMinutes ?? 0),
       executionVersion:
@@ -630,6 +650,28 @@ export function TaskProvider({ children }: { children: ReactNode }) {
           title: previousTask.title,
           type: previousTask.type,
         });
+
+        if (shouldCaptureDriftTelemetry) {
+          const previousStartMs = previousTask.startDateTime
+            ? Date.parse(previousTask.startDateTime)
+            : NaN;
+          const nextStartMs = Date.parse(updates.startDateTime);
+          if (
+            Number.isFinite(previousStartMs) &&
+            Number.isFinite(nextStartMs) &&
+            nextStartMs > previousStartMs
+          ) {
+            recordExecutionTelemetryEvent({
+              eventType: 'task_postponed',
+              taskId: previousTask.id,
+              timestamp: new Date().toISOString(),
+              plannedStartDateTime: previousTask.startDateTime,
+              plannedDurationMinutes: previousTask.durationMinutes,
+              fromStartDateTime: previousTask.startDateTime,
+              toStartDateTime: updates.startDateTime,
+            });
+          }
+        }
       }
     }
 
@@ -711,6 +753,25 @@ export function TaskProvider({ children }: { children: ReactNode }) {
           title: target.title,
           type: target.type,
         });
+        if (shouldCaptureDriftTelemetry) {
+          const previousStartMs = Date.parse(target.startDateTime);
+          const nextStartMs = Date.parse(startDateTime);
+          if (
+            Number.isFinite(previousStartMs) &&
+            Number.isFinite(nextStartMs) &&
+            nextStartMs > previousStartMs
+          ) {
+            recordExecutionTelemetryEvent({
+              eventType: 'task_postponed',
+              taskId: target.id,
+              timestamp: new Date().toISOString(),
+              plannedStartDateTime: target.startDateTime,
+              plannedDurationMinutes: target.durationMinutes,
+              fromStartDateTime: target.startDateTime,
+              toStartDateTime: startDateTime,
+            });
+          }
+        }
       }
     });
 
@@ -773,6 +834,17 @@ export function TaskProvider({ children }: { children: ReactNode }) {
             : task
         ),
     });
+
+    if (shouldCaptureDriftTelemetry) {
+      recordExecutionTelemetryEvent({
+        eventType: 'task_started',
+        taskId: target.id,
+        timestamp: startedAt,
+        plannedStartDateTime: target.startDateTime,
+        plannedDurationMinutes: target.durationMinutes,
+        startAt: startedAt,
+      });
+    }
   };
 
   const pauseTask = (id: string) => {
@@ -797,6 +869,17 @@ export function TaskProvider({ children }: { children: ReactNode }) {
             : task
         ),
     });
+
+    if (shouldCaptureDriftTelemetry) {
+      recordExecutionTelemetryEvent({
+        eventType: 'task_paused',
+        taskId: target.id,
+        timestamp: new Date(nowMs).toISOString(),
+        plannedStartDateTime: target.startDateTime,
+        plannedDurationMinutes: target.durationMinutes,
+        actualMinutes: accumulated,
+      });
+    }
   };
 
   const completeTask = (id: string) => {
@@ -836,6 +919,27 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       startDateTime: target.startDateTime,
       completedAt,
     });
+    updateDurationProfileOnCompletion({
+      title: target.title,
+      type: target.type,
+      plannedMinutes: target.durationMinutes,
+      actualMinutes: accumulated,
+      completedAt,
+    });
+
+    if (shouldCaptureDriftTelemetry) {
+      recordExecutionTelemetryEvent({
+        eventType: 'task_completed',
+        taskId: target.id,
+        timestamp: completedAt,
+        plannedStartDateTime: target.startDateTime,
+        plannedDurationMinutes: target.durationMinutes,
+        actualMinutes: accumulated,
+        startAt: target.lastStartAt,
+        completedAt,
+        overrunMinutes: Math.max(0, accumulated - target.durationMinutes),
+      });
+    }
 
     if (preferences.soundEffectsEnabled) {
       playChime();

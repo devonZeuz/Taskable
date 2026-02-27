@@ -81,6 +81,7 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
       status: 'scheduled',
       executionStatus: 'idle',
       actualMinutes: 0,
+      version: 0,
     });
 
     if (soundEffectsEnabled) {
@@ -96,7 +97,7 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
       data-testid="add-block-trigger"
       onClick={handleCreateBlock}
       variant="ghost"
-      className="h-9 gap-2 rounded-[11px] border border-[color:var(--hud-border)] bg-black/85 px-3 text-white hover:bg-black"
+      className="planner-control h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-black/85 px-3 text-white hover:bg-black"
     >
       <StopCircle className="size-4" />
       Block

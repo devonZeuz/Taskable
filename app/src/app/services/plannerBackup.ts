@@ -162,6 +162,7 @@ function migrateLegacyTasks(legacyTasks: LegacyTask[]): Task[] {
       assignedTo: task.assignedTo,
       status: startDateTime ? 'scheduled' : 'inbox',
       focus: false,
+      version: 1,
       executionStatus: task.completed ? 'completed' : 'idle',
       actualMinutes: 0,
     };
@@ -195,6 +196,10 @@ function normalizeTasks(tasks: Task[]): Task[] {
       startDateTime: status === 'scheduled' ? task.startDateTime : undefined,
       subtasks,
       focus: Boolean(task.focus),
+      version:
+        typeof task.version === 'number' && Number.isFinite(task.version) && task.version > 0
+          ? Math.floor(task.version)
+          : 1,
       executionVersion:
         typeof task.executionVersion === 'number' && task.executionVersion > 0
           ? Math.floor(task.executionVersion)

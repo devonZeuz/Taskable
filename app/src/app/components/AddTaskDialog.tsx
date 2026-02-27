@@ -33,7 +33,10 @@ import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner';
 import { buildEffectiveMembers } from '../services/memberDirectory';
 import { getTaskSuggestions } from '../services/taskTelemetry';
+import { suggestDuration } from '../services/durationProfile';
 import { playCalendarSnapSound } from '../services/uiSounds';
+import { getRandomThemeColor } from '../services/taskColor';
+import { resolveLayoutV1Flag } from '../flags';
 import {
   combineDayAndTime,
   findNextAvailableSlot,
@@ -57,6 +60,8 @@ interface AddTaskDialogProps {
   playSnapOnSubmit?: boolean;
   onClose?: () => void;
 }
+
+const DURATION_PRESET_MINUTES = [15, 30, 45, 60, 90, 120];
 
 export default function AddTaskDialog({
   defaultDay,
@@ -88,6 +93,7 @@ export default function AddTaskDialog({
   const {
     preferences: { defaultTaskDurationMinutes, slotMinutes, soundEffectsEnabled },
   } = useUserPreferences();
+  const layoutV1Enabled = resolveLayoutV1Flag();
   const { theme } = useAppTheme();
   const activeSwatches = APP_THEME_TASK_SWATCHES[theme];
   const useCloudMembers = cloudEnabled && Boolean(cloudToken && activeOrgId);
@@ -127,7 +133,7 @@ export default function AddTaskDialog({
     day: initialDayKey,
     startTime: initialStartTime,
     durationMinutes: initialDurationMinutes,
-    color: editTask?.color || activeSwatches[0].value,
+    color: editTask?.color || getRandomThemeColor(theme),
     type: editTask?.type || ('quick' as 'quick' | 'large' | 'block'),
     subtasks: editTask?.subtasks || ([] as SubTask[]),
     assignedTo: editTask?.assignedTo || defaultAssignee || 'unassigned',
@@ -135,8 +141,7 @@ export default function AddTaskDialog({
   });
 
   const [subtaskInput, setSubtaskInput] = useState('');
-  const [showColorPalette, setShowColorPalette] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(() => !layoutV1Enabled);
   const [taskTakeoverPending, setTaskTakeoverPending] = useState(false);
   const [dayTakeoverPending, setDayTakeoverPending] = useState(false);
   const taskLockHeartbeatRef = useRef<number | null>(null);
@@ -217,20 +222,32 @@ export default function AddTaskDialog({
         title: formData.title,
         type: formData.type,
         slotMinutes,
+        currentDurationMinutes: formData.durationMinutes,
       }),
-    [formData.title, formData.type, slotMinutes]
+    [formData.durationMinutes, formData.title, formData.type, slotMinutes]
+  );
+  const durationProfileSuggestion = useMemo(
+    () =>
+      suggestDuration({
+        title: formData.title,
+        type: formData.type,
+        plannedMinutes: formData.durationMinutes,
+        slotMinutes,
+      }),
+    [formData.durationMinutes, formData.title, formData.type, slotMinutes]
   );
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
-      setShowAdvanced(false);
-      setShowColorPalette(false);
+      setShowAdvanced(!layoutV1Enabled);
       if (!editTask) {
+        const randomThemeColor = getRandomThemeColor(theme);
+        setFormData((prev) => ({ ...prev, color: randomThemeColor }));
         const hasThemeColor = activeSwatches.some(
           (swatch) => swatch.value.toLowerCase() === formData.color.toLowerCase()
         );
         if (!hasThemeColor) {
-          setFormData((prev) => ({ ...prev, color: activeSwatches[0].value }));
+          setFormData((prev) => ({ ...prev, color: randomThemeColor }));
         }
       }
     }
@@ -344,6 +361,7 @@ export default function AddTaskDialog({
       return;
     }
 
+    const normalizedSubtasks = formData.type === 'large' ? formData.subtasks : [];
     const assignedToValue = formData.assignedTo === 'unassigned' ? undefined : formData.assignedTo;
     const startDateTime = formData.scheduleLater
       ? undefined
@@ -361,7 +379,7 @@ export default function AddTaskDialog({
         timeZone,
         color: formData.color,
         type: formData.type,
-        subtasks: formData.subtasks,
+        subtasks: normalizedSubtasks,
         assignedTo: assignedToValue,
         completed: editTask.completed,
         status: formData.scheduleLater ? 'inbox' : 'scheduled',
@@ -377,12 +395,13 @@ export default function AddTaskDialog({
         timeZone,
         color: formData.color,
         type: formData.type,
-        subtasks: formData.subtasks,
+        subtasks: normalizedSubtasks,
         assignedTo: assignedToValue,
         completed: false,
         status: formData.scheduleLater ? 'inbox' : 'scheduled',
         executionStatus: 'idle',
         actualMinutes: 0,
+        version: 0,
       });
     }
 
@@ -440,6 +459,31 @@ export default function AddTaskDialog({
     }
   };
 
+  const setTaskType = (type: 'quick' | 'large' | 'block') => {
+    setFormData((prev) => ({
+      ...prev,
+      type,
+      subtasks: type === 'large' ? prev.subtasks : [],
+    }));
+    if (type !== 'large') {
+      setSubtaskInput('');
+    }
+  };
+
+  const applyDurationMinutes = (minutes: number) => {
+    const normalized = Number.isFinite(minutes)
+      ? Math.min(600, Math.max(slotMinutes, Math.round(minutes)))
+      : slotMinutes;
+    setFormData((prev) => ({
+      ...prev,
+      durationMinutes: normalized,
+    }));
+  };
+
+  const stepDurationMinutes = (delta: number) => {
+    applyDurationMinutes(formData.durationMinutes + delta);
+  };
+
   const addSubtask = () => {
     if (subtaskInput.trim()) {
       setFormData({
@@ -491,14 +535,17 @@ export default function AddTaskDialog({
         {!editTask && !hideTrigger && (
           <Button
             data-testid="add-task-trigger"
-            className="h-9 gap-2 rounded-[11px] border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-4 text-[var(--hud-accent-text)] hover:brightness-95"
+            className="planner-control h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-4 text-[var(--hud-accent-text)] hover:brightness-95"
           >
             <Plus className="size-4" />
             Add Task
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-h-[88vh] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-[16px] border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-0 shadow-[0_24px_52px_rgba(0,0,0,0.45)] backdrop-blur-md sm:max-w-[760px]">
+      <DialogContent
+        className="max-h-[88vh] max-w-[calc(100vw-1.5rem)] overflow-hidden ui-v1-radius-md border-[color:var(--hud-border)] bg-[var(--hud-surface)] ui-v1-elevation-3 backdrop-blur-md sm:max-w-[760px]"
+        style={{ padding: 0 }}
+      >
         <DialogHeader className="gap-1 border-b border-[color:var(--hud-border)] px-4 py-3 pr-12">
           <DialogTitle className="text-[17px] tracking-[-0.02em] text-[color:var(--hud-text)]">
             {editTask ? 'Update Task' : 'Create Task'}
@@ -535,7 +582,7 @@ export default function AddTaskDialog({
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="h-7 rounded-[9px] border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[11px]"
+                    className="h-7 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[11px]"
                     disabled={taskTakeoverPending}
                     onClick={() => {
                       void handleTaskTakeover();
@@ -559,7 +606,7 @@ export default function AddTaskDialog({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="h-7 rounded-[9px] border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[11px]"
+                  className="h-7 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[11px]"
                   onClick={() => openConflictResolver(editTask.id)}
                 >
                   Resolve conflict
@@ -580,7 +627,7 @@ export default function AddTaskDialog({
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="h-7 rounded-[9px] border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[11px]"
+                    className="h-7 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[11px]"
                     disabled={dayTakeoverPending}
                     onClick={() => {
                       void handleDayTakeover();
@@ -622,85 +669,14 @@ export default function AddTaskDialog({
             </Alert>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-            <div className="space-y-1.5">
-              <Label htmlFor="title">Task Title</Label>
-              <Input
-                id="title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                required
-                placeholder="e.g., Germany Invoices"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Color</Label>
-              <div className="flex items-center gap-2">
-                <Popover open={showColorPalette} onOpenChange={setShowColorPalette}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="size-8 rounded-full border-2 transition-transform hover:scale-105"
-                      style={{
-                        backgroundColor: formData.color,
-                        borderColor: 'var(--hud-outline)',
-                      }}
-                      title="Selected color"
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="bottom"
-                    align="end"
-                    sideOffset={8}
-                    className="w-auto rounded-md p-2"
-                  >
-                    <div className="flex max-w-[180px] flex-wrap gap-1.5">
-                      {activeSwatches.map((swatch) => (
-                        <button
-                          key={swatch.value}
-                          type="button"
-                          onClick={() => {
-                            setFormData({ ...formData, color: swatch.value });
-                            setShowColorPalette(false);
-                          }}
-                          className="size-6 rounded-full border-2 transition-transform hover:scale-105"
-                          style={{
-                            backgroundColor: swatch.value,
-                            borderColor:
-                              formData.color === swatch.value ? 'var(--hud-text)' : 'transparent',
-                          }}
-                          title={swatch.name}
-                        />
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-          </div>
-
           <div className="space-y-1.5">
-            <Label htmlFor="description">Description (Optional)</Label>
-            <Textarea
-              id="description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Add details..."
-              rows={1}
-              className="min-h-[54px]"
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-[12px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] px-3 py-2">
-            <div>
-              <p className="text-sm font-semibold">Schedule later (WIP)</p>
-              <p className="text-xs text-muted-foreground">Keep in inbox/backlog.</p>
-            </div>
-            <Switch
-              data-testid="schedule-later-toggle"
-              checked={formData.scheduleLater}
-              onCheckedChange={(value) => setFormData({ ...formData, scheduleLater: value })}
+            <Label htmlFor="title">Task Title</Label>
+            <Input
+              id="title"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              required
+              placeholder="e.g., Germany Invoices"
             />
           </div>
 
@@ -749,102 +725,339 @@ export default function AddTaskDialog({
                   ))}
                 </SelectContent>
               </Select>
-              {taskSuggestions.suggestedWindow && (
-                <p className="text-[11px] text-muted-foreground">
-                  Suggested window: {taskSuggestions.suggestedWindow.start} -{' '}
-                  {taskSuggestions.suggestedWindow.end}
-                  {taskSuggestions.windowSampleCount > 0
-                    ? ` (${taskSuggestions.windowSampleCount} similar completions)`
-                    : ''}
-                </p>
-              )}
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="duration">Duration (minutes)</Label>
-              <Input
-                id="duration"
-                type="number"
-                min={slotMinutes}
-                max="600"
-                step={slotMinutes}
-                value={formData.durationMinutes}
-                onChange={(e) => {
-                  const value = Number(e.target.value);
-                  setFormData({
-                    ...formData,
-                    durationMinutes: Number.isNaN(value) ? 0 : value,
-                  });
-                }}
-                required
-              />
-              {taskSuggestions.suggestedDurationMinutes !== null && (
-                <p className="text-[11px] text-muted-foreground">
-                  Suggested duration: {taskSuggestions.suggestedDurationMinutes} min
-                  {taskSuggestions.durationSampleCount > 0
-                    ? ` (based on ${taskSuggestions.durationSampleCount} similar tasks)`
-                    : ''}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Task Type</Label>
-              <div className="inline-flex w-full rounded-md border bg-muted/30 p-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  className={`h-8 flex-1 ${
-                    formData.type === 'quick'
-                      ? ''
-                      : 'bg-transparent text-muted-foreground hover:bg-transparent'
-                  }`}
-                  variant={formData.type === 'quick' ? 'default' : 'ghost'}
-                  onClick={() => setFormData({ ...formData, type: 'quick' })}
-                >
-                  Quick
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className={`h-8 flex-1 ${
-                    formData.type === 'large'
-                      ? ''
-                      : 'bg-transparent text-muted-foreground hover:bg-transparent'
-                  }`}
-                  variant={formData.type === 'large' ? 'default' : 'ghost'}
-                  onClick={() => setFormData({ ...formData, type: 'large' })}
-                >
-                  Complex
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className={`h-8 flex-1 ${
-                    formData.type === 'block'
-                      ? ''
-                      : 'bg-transparent text-muted-foreground hover:bg-transparent'
-                  }`}
-                  variant={formData.type === 'block' ? 'default' : 'ghost'}
-                  onClick={() => setFormData({ ...formData, type: 'block' })}
-                >
-                  Block
-                </Button>
+              <div className="w-full ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-2.5 sm:inline-flex sm:w-fit sm:flex-col">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="ui-hud-btn h-8 w-8 ui-v1-radius-sm p-0 text-base leading-none"
+                    onClick={() => stepDurationMinutes(-slotMinutes)}
+                    aria-label="Decrease duration"
+                  >
+                    -
+                  </Button>
+                  <div className="relative w-[170px] max-w-full sm:w-[210px]">
+                    <Input
+                      id="duration"
+                      type="number"
+                      min={slotMinutes}
+                      max="600"
+                      step={slotMinutes}
+                      value={formData.durationMinutes}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        applyDurationMinutes(Number.isNaN(value) ? slotMinutes : value);
+                      }}
+                      required
+                      className="h-9 border-[color:var(--hud-border)] bg-[var(--hud-surface)] pr-11 text-[13px] font-semibold"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold tracking-[0.08em] text-[color:var(--hud-muted)]">
+                      MIN
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="ui-hud-btn h-8 w-8 ui-v1-radius-sm p-0 text-base leading-none"
+                    onClick={() => stepDurationMinutes(slotMinutes)}
+                    aria-label="Increase duration"
+                  >
+                    +
+                  </Button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {DURATION_PRESET_MINUTES.map((minutes) => (
+                    <Button
+                      key={minutes}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className={`h-7 ui-v1-radius-sm px-2.5 text-[11px] ${
+                        formData.durationMinutes === minutes
+                          ? 'border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] text-[color:var(--hud-accent-soft-text)]'
+                          : 'ui-hud-btn'
+                      }`}
+                      onClick={() => applyDurationMinutes(minutes)}
+                    >
+                      {minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((prev) => !prev)}
-            className="flex h-9 w-full items-center justify-between rounded-[11px] border border-dashed border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] px-3 py-2 text-sm font-medium text-[color:var(--hud-muted)] transition-colors hover:text-[color:var(--hud-text)]"
-          >
-            <span>Advanced options</span>
-            {showAdvanced ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-          </button>
+          {shouldCheckSchedule && (
+            <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2.5 text-[11px] text-[color:var(--hud-muted)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[12px] font-semibold text-[color:var(--hud-text)]">
+                    Capacity left
+                  </p>
+                  {scheduleSummary.suggestion ? (
+                    <p className="mt-0.5">
+                      Next slot: {scheduleSummary.suggestion.startTime} -{' '}
+                      {scheduleSummary.suggestion.endTime}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5">
+                      No open slot found. You can still stack tasks at your chosen time.
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <span
+                    className={`text-[18px] font-bold leading-none tracking-[-0.02em] ${
+                      scheduleSummary.remainingMinutes > 0
+                        ? 'text-[color:var(--hud-success-text)]'
+                        : 'text-[color:var(--hud-warning-text)]'
+                    }`}
+                  >
+                    {formatMinutes(scheduleSummary.remainingMinutes)}
+                  </span>
+                  {scheduleSummary.suggestion && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="ui-hud-btn h-7 ui-v1-radius-sm px-2.5 text-[11px]"
+                      onClick={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          day: formData.day,
+                          startTime: scheduleSummary.suggestion?.startTime ?? prev.startTime,
+                          scheduleLater: false,
+                        }))
+                      }
+                    >
+                      Use next slot
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
-          {showAdvanced && (
-            <div className="space-y-3 rounded-[12px] border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+          {layoutV1Enabled && (
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              className="flex h-9 w-full items-center justify-between ui-v1-radius-sm border border-dashed border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] px-3 py-2 text-sm font-medium text-[color:var(--hud-muted)] transition-colors hover:text-[color:var(--hud-text)]"
+            >
+              <span>Advanced options</span>
+              {showAdvanced ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            </button>
+          )}
+
+          {(showAdvanced || !layoutV1Enabled) && (
+            <div className="space-y-3 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+              <div className="flex items-center justify-between ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold">Schedule later</p>
+                  <p className="text-xs text-muted-foreground">Keep in inbox/backlog.</p>
+                </div>
+                <Switch
+                  data-testid="schedule-later-toggle"
+                  checked={formData.scheduleLater}
+                  onCheckedChange={(value) => setFormData({ ...formData, scheduleLater: value })}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="description">Notes</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Add details..."
+                  rows={2}
+                  className="min-h-[72px]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Color</Label>
+                <div className="flex flex-wrap gap-2">
+                  {activeSwatches.map((swatch) => (
+                    <button
+                      key={swatch.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, color: swatch.value })}
+                      className={`size-7 rounded-full border-2 ui-v1-hover-grow ${
+                        formData.color === swatch.value
+                          ? 'ring-2 ring-[color:var(--hud-outline)] ring-offset-2 ring-offset-[color:var(--hud-surface-soft)]'
+                          : ''
+                      }`}
+                      style={{
+                        backgroundColor: swatch.value,
+                        borderColor:
+                          formData.color === swatch.value
+                            ? 'var(--hud-text)'
+                            : 'color-mix(in srgb, var(--hud-border) 85%, transparent)',
+                      }}
+                      title={swatch.name}
+                    >
+                      <span className="sr-only">{swatch.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Task Type</Label>
+                <div className="inline-flex w-full rounded-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className={`h-8 flex-1 ${
+                      formData.type === 'quick'
+                        ? 'border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] text-[var(--hud-accent-soft-text)]'
+                        : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
+                    }`}
+                    variant="ghost"
+                    onClick={() => setTaskType('quick')}
+                  >
+                    Quick
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className={`h-8 flex-1 ${
+                      formData.type === 'large'
+                        ? 'border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] text-[var(--hud-accent-soft-text)]'
+                        : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
+                    }`}
+                    variant="ghost"
+                    onClick={() => setTaskType('large')}
+                  >
+                    Complex
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className={`h-8 flex-1 ${
+                      formData.type === 'block'
+                        ? 'border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] text-[var(--hud-accent-soft-text)]'
+                        : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
+                    }`}
+                    variant="ghost"
+                    onClick={() => setTaskType('block')}
+                  >
+                    Block
+                  </Button>
+                </div>
+              </div>
+
+              {formData.type !== 'block' &&
+                (taskSuggestions.suggestedWindow ||
+                  taskSuggestions.suggestedDurationMinutes !== null ||
+                  durationProfileSuggestion.suggestedDurationMinutes !== null) && (
+                  <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[12px] font-semibold text-[color:var(--hud-text)]">
+                        Smart helpers
+                      </p>
+                      <span className="ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.09em] text-[color:var(--hud-accent-soft-text)]">
+                        Smart
+                      </span>
+                    </div>
+
+                    <div className="mt-2 space-y-1.5 text-[11px] text-[color:var(--hud-muted)]">
+                      {taskSuggestions.suggestedWindow ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Suggested window</span>
+                          <span className="ui-v1-radius-xs ui-status-info px-2 py-0.5 font-semibold">
+                            {taskSuggestions.suggestedWindow.start} -{' '}
+                            {taskSuggestions.suggestedWindow.end}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {(taskSuggestions.suggestedDurationMinutes !== null ||
+                        durationProfileSuggestion.suggestedDurationMinutes !== null) && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Suggested duration</span>
+                          <span className="ui-v1-radius-xs ui-status-success px-2 py-0.5 font-semibold">
+                            {durationProfileSuggestion.suggestedDurationMinutes ??
+                              taskSuggestions.suggestedDurationMinutes}{' '}
+                            min
+                          </span>
+                        </div>
+                      )}
+
+                      {taskSuggestions.correctionFactor !== null ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Duration correction</span>
+                          <span
+                            className={`ui-v1-radius-xs px-2 py-0.5 font-semibold ${
+                              taskSuggestions.correctionTrend === 'overrun'
+                                ? 'ui-status-warning'
+                                : taskSuggestions.correctionTrend === 'underrun'
+                                  ? 'ui-status-info'
+                                  : 'ui-status-success'
+                            }`}
+                          >
+                            {taskSuggestions.correctionTrend === 'overrun'
+                              ? `+${Math.round((taskSuggestions.correctionFactor - 1) * 100)}% overrun`
+                              : taskSuggestions.correctionTrend === 'underrun'
+                                ? `${Math.round((taskSuggestions.correctionFactor - 1) * 100)}% underrun`
+                                : 'Balanced'}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {(taskSuggestions.windowSampleCount > 0 ||
+                        taskSuggestions.durationSampleCount > 0 ||
+                        durationProfileSuggestion.sampleCount > 0 ||
+                        taskSuggestions.correctionSampleCount > 0) && (
+                        <p className="pt-0.5 text-[10px] text-[color:var(--hud-muted)]">
+                          History: window n={taskSuggestions.windowSampleCount}, duration n=
+                          {Math.max(
+                            durationProfileSuggestion.sampleCount,
+                            taskSuggestions.durationSampleCount
+                          )}
+                          {taskSuggestions.correctionFactor !== null
+                            ? `, correction n=${taskSuggestions.correctionSampleCount}`
+                            : ''}
+                        </p>
+                      )}
+                      {durationProfileSuggestion.suggestedDurationMinutes !== null &&
+                        durationProfileSuggestion.sampleCount >= 3 && (
+                          <p className="text-[10px] text-[color:var(--hud-muted)]">
+                            {`Based on your history (n=${durationProfileSuggestion.sampleCount})`}
+                          </p>
+                        )}
+                    </div>
+
+                    {(taskSuggestions.suggestedDurationMinutes !== null ||
+                      durationProfileSuggestion.suggestedDurationMinutes !== null) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="ui-hud-btn-soft mt-2 h-7 w-full ui-v1-radius-sm px-2.5 text-[11px]"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            durationMinutes:
+                              durationProfileSuggestion.suggestedDurationMinutes ??
+                              taskSuggestions.suggestedDurationMinutes ??
+                              prev.durationMinutes,
+                          }))
+                        }
+                      >
+                        Use suggested duration
+                      </Button>
+                    )}
+                  </div>
+                )}
+
               <div className="space-y-1.5">
                 <Label htmlFor="assignee">Assignee</Label>
                 <Select
@@ -865,27 +1078,6 @@ export default function AddTaskDialog({
                 </Select>
               </div>
 
-              {shouldCheckSchedule && (
-                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                  <div className="flex items-center justify-between gap-2">
-                    <span>Capacity left</span>
-                    <span className="font-semibold text-foreground">
-                      {formatMinutes(scheduleSummary.remainingMinutes)}
-                    </span>
-                  </div>
-                  {scheduleSummary.suggestion ? (
-                    <div className="mt-1">
-                      Next slot: {scheduleSummary.suggestion.startTime} -{' '}
-                      {scheduleSummary.suggestion.endTime}
-                    </div>
-                  ) : (
-                    <div className="mt-1 text-muted-foreground">
-                      No open slot found. You can still stack tasks at your chosen time.
-                    </div>
-                  )}
-                </div>
-              )}
-
               {formData.type === 'large' && (
                 <div className="space-y-2">
                   <Label>Subtasks (Optional)</Label>
@@ -894,26 +1086,35 @@ export default function AddTaskDialog({
                       value={subtaskInput}
                       onChange={(e) => setSubtaskInput(e.target.value)}
                       placeholder="Add a subtask..."
+                      className="border-[color:var(--hud-border)] bg-[var(--hud-surface)]"
                       onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSubtask())}
                     />
-                    <Button type="button" onClick={addSubtask} variant="outline">
+                    <Button
+                      type="button"
+                      onClick={addSubtask}
+                      variant="outline"
+                      className="ui-hud-btn h-9 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface)]"
+                    >
                       <Plus className="size-4" />
                     </Button>
                   </div>
 
                   {formData.subtasks.length > 0 && (
-                    <div className="mt-2 space-y-2">
+                    <div className="mt-2 space-y-1.5">
                       {formData.subtasks.map((subtask) => (
                         <div
                           key={subtask.id}
-                          className="flex items-center justify-start gap-2 rounded bg-muted p-2"
+                          className="flex items-center justify-start gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2"
                         >
-                          <span className="text-left">{subtask.title}</span>
+                          <span className="size-3.5 rounded-full border border-[color:var(--hud-muted)]" />
+                          <span className="min-w-0 flex-1 truncate text-left text-[12px] font-semibold text-[color:var(--hud-text)]">
+                            {subtask.title}
+                          </span>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-7 w-7 shrink-0 p-0"
+                            className="ui-hud-btn h-7 w-7 shrink-0 ui-v1-radius-sm p-0"
                             onClick={() => removeSubtask(subtask.id)}
                           >
                             <X className="size-4" />
@@ -931,7 +1132,7 @@ export default function AddTaskDialog({
             <Button
               type="button"
               variant="outline"
-              className="h-9 rounded-[10px] border-[color:var(--hud-border)]"
+              className="h-9 ui-v1-radius-sm border-[color:var(--hud-border)]"
               onClick={() => {
                 setOpen(false);
                 onClose?.();
@@ -943,7 +1144,7 @@ export default function AddTaskDialog({
               type="submit"
               data-testid={editTask ? 'update-task-submit' : 'create-task-submit'}
               disabled={blockedByTaskLock || blockedByConflictLock || !canWriteTasks}
-              className="h-9 rounded-[10px] border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] text-[var(--hud-accent-text)] hover:brightness-95"
+              className="h-9 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] text-[var(--hud-accent-text)] hover:brightness-95"
             >
               {editTask ? 'Update Task' : 'Create'}
             </Button>
