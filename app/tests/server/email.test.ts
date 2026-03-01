@@ -67,4 +67,42 @@ describe('email delivery service', () => {
     expect(config.from).toContain('Tareva');
     expect(config.appBaseUrl).toBe('http://localhost:5173');
   });
+
+  it('fails fast when provider request times out', async () => {
+    process.env.EMAIL_PROVIDER = 'sendgrid';
+    process.env.SENDGRID_API_KEY = 'test-key';
+    process.env.EMAIL_PROVIDER_TIMEOUT_MS = '15';
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((_: RequestInfo | URL, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+        signal?.addEventListener(
+          'abort',
+          () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          },
+          { once: true }
+        );
+      })) as typeof fetch;
+
+    try {
+      const emailModule = await loadEmailModule();
+      await expect(
+        emailModule.sendVerificationEmail({
+          to: 'qa@example.com',
+          name: 'QA User',
+          token: 'verify-token-timeout',
+        })
+      ).rejects.toThrow('timed out');
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.EMAIL_PROVIDER_TIMEOUT_MS;
+      delete process.env.SENDGRID_API_KEY;
+    }
+  });
 });

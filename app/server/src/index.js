@@ -679,6 +679,24 @@ function consumeSseStreamToken({ token, orgId, sessionId }) {
   });
 }
 
+const rollbackFailedRegistrationTransaction = db.transaction(({ userId, orgId }) => {
+  db.prepare('DELETE FROM orgs WHERE id = ?').run(orgId);
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+});
+
+function rollbackFailedRegistration({ userId, orgId }) {
+  try {
+    rollbackFailedRegistrationTransaction({ userId, orgId });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'unknown';
+    console.error(
+      `[auth] failed to rollback registration user=${userId} org=${orgId} reason=${message}`
+    );
+    return false;
+  }
+}
+
 async function queueVerificationEmail({ userId, email, name, token }) {
   try {
     const delivery = await sendVerificationEmail({
@@ -1630,6 +1648,7 @@ app.post(
       token: verificationToken,
     });
     if (verificationDelivery.failed && EMAIL_REQUIRE_DELIVERY) {
+      rollbackFailedRegistration({ userId, orgId });
       sendError(
         res,
         503,

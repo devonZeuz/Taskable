@@ -40,6 +40,14 @@ const POSTMARK_SERVER_TOKEN = String(
 const POSTMARK_MESSAGE_STREAM = String(process.env.POSTMARK_MESSAGE_STREAM || 'outbound').trim();
 const EMAIL_SANDBOX_MODE = process.env.EMAIL_SANDBOX_MODE === 'true';
 const EMAIL_TEST_LOG_PATH = String(process.env.EMAIL_TEST_LOG_PATH || '').trim();
+const EMAIL_PROVIDER_TIMEOUT_MS = (() => {
+  const rawValue = String(process.env.EMAIL_PROVIDER_TIMEOUT_MS || '').trim();
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 8_000;
+  }
+  return Math.min(parsed, 60_000);
+})();
 
 const testMailbox = [];
 
@@ -140,7 +148,7 @@ async function sendWithSendgrid(message) {
     throw new Error('SENDGRID_API_KEY is missing.');
   }
 
-  const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+  const response = await fetchWithTimeout('https://api.sendgrid.com/v3/mail/send', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${SENDGRID_API_KEY}`,
@@ -175,7 +183,7 @@ async function sendWithPostmark(message) {
     throw new Error('POSTMARK_SERVER_TOKEN is missing.');
   }
 
-  const response = await fetch('https://api.postmarkapp.com/email', {
+  const response = await fetchWithTimeout('https://api.postmarkapp.com/email', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -218,6 +226,44 @@ async function safeJson(response) {
     return await response.json();
   } catch {
     return null;
+  }
+}
+
+async function fetchWithTimeout(resource, init) {
+  if (EMAIL_PROVIDER_TIMEOUT_MS <= 0) {
+    return fetch(resource, init);
+  }
+
+  const timeoutController = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    timeoutController.abort();
+  }, EMAIL_PROVIDER_TIMEOUT_MS);
+
+  const externalSignal = init?.signal;
+  const onExternalAbort = () => timeoutController.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      timeoutController.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+
+  try {
+    return await fetch(resource, {
+      ...init,
+      signal: timeoutController.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Email provider request timed out after ${EMAIL_PROVIDER_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
   }
 }
 
@@ -321,6 +367,7 @@ export function getEmailDeliveryConfig() {
     from: EMAIL_FROM,
     appBaseUrl: APP_BASE_URL,
     sandboxMode: EMAIL_SANDBOX_MODE,
+    providerTimeoutMs: EMAIL_PROVIDER_TIMEOUT_MS,
     testLogPathEnabled: Boolean(EMAIL_TEST_LOG_PATH),
   };
 }

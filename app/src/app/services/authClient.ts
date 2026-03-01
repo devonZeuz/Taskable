@@ -47,6 +47,7 @@ export async function registerWithPassword(params: {
 }) {
   const payload = await cloudRequest<CloudAuthPayload>('/api/v1/auth/register', {
     method: 'POST',
+    timeoutMs: 30_000,
     body: {
       name: params.name,
       email: params.email,
