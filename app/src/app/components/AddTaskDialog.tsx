@@ -47,9 +47,7 @@ import {
   getDayKey,
   getDayKeyFromDateTime,
   getDateFromDayKey,
-  getWorkdayMinutes,
   getRemainingCapacityMinutes,
-  getWorkdayTimeSlots,
   minutesToTime,
   timeToMinutes,
 } from '../services/scheduling';
@@ -131,13 +129,10 @@ export default function AddTaskDialog({
   const roundedNowTime = minutesToTime(roundedNowMinutes);
   const initialDurationMinutes = editTask?.durationMinutes || defaultTaskDurationMinutes;
   const todayDayKey = getDayKey(todayStart);
-  const nowFitsWorkday =
-    roundedNowMinutes >= workday.startHour * 60 &&
-    roundedNowMinutes + initialDurationMinutes <= workday.endHour * 60;
   const initialStartTime = editTask?.startDateTime
     ? formatTime(new Date(editTask.startDateTime))
     : defaultTime ||
-      (initialDayKey === todayDayKey && nowFitsWorkday
+      (initialDayKey === todayDayKey
         ? roundedNowTime
         : findNextAvailableSlot(
             scheduleScopeTasks,
@@ -145,7 +140,7 @@ export default function AddTaskDialog({
             initialDurationMinutes,
             undefined,
             workday
-          )?.startTime || minutesToTime(workday.startHour * 60));
+          )?.startTime || roundedNowTime);
   const initialScheduleLater = editTask
     ? editTask.status === 'inbox' || !editTask.startDateTime
     : false;
@@ -173,15 +168,20 @@ export default function AddTaskDialog({
   const dayLockHeartbeatRef = useRef<number | null>(null);
   const claimedTaskIdRef = useRef<string | null>(null);
   const claimedDayKeyRef = useRef<string | null>(null);
-  const timeOptions = useMemo(
-    () => getWorkdayTimeSlots(slotMinutes, workday),
-    [slotMinutes, workday]
-  );
-  const isCrossDay = formData.durationMinutes > getWorkdayMinutes(workday);
+  const timeOptions = useMemo(() => {
+    const slots: string[] = [];
+    for (let minutes = 0; minutes < 24 * 60; minutes += slotMinutes) {
+      slots.push(minutesToTime(minutes));
+    }
+    return slots;
+  }, [slotMinutes]);
+  const selectedStartMinutes = timeToMinutes(formData.startTime);
+  const isCrossDay =
+    !formData.scheduleLater && selectedStartMinutes + formData.durationMinutes > 24 * 60;
   const shouldCheckSchedule = !formData.scheduleLater && !isCrossDay;
   const scheduleSummary = useMemo(() => {
     if (!shouldCheckSchedule) {
-      return { remainingMinutes: 0, suggestion: null, outOfBounds: false };
+      return { remainingMinutes: 0, suggestion: null, outsideWorkday: false, invalidRange: false };
     }
     const remainingMinutes = getRemainingCapacityMinutes(
       scheduleScopeTasks,
@@ -198,11 +198,9 @@ export default function AddTaskDialog({
     );
     const startMinutes = timeToMinutes(formData.startTime);
     const endMinutes = startMinutes + formData.durationMinutes;
-    const outOfBounds =
-      formData.durationMinutes <= 0 ||
-      startMinutes < workday.startHour * 60 ||
-      endMinutes > workday.endHour * 60;
-    return { remainingMinutes, suggestion, outOfBounds };
+    const outsideWorkday = startMinutes < workday.startHour * 60 || endMinutes > workday.endHour * 60;
+    const invalidRange = formData.durationMinutes <= 0 || endMinutes > 24 * 60;
+    return { remainingMinutes, suggestion, outsideWorkday, invalidRange };
   }, [
     scheduleScopeTasks,
     formData.day,
@@ -427,7 +425,7 @@ export default function AddTaskDialog({
       return;
     }
 
-    if (isCrossDay || scheduleSummary.outOfBounds || cannotFit) {
+    if (isCrossDay || scheduleSummary.invalidRange || cannotFit) {
       return;
     }
 
@@ -539,12 +537,7 @@ export default function AddTaskDialog({
         const todayKey = getDayKey(now);
         const roundedNowMinutes =
           Math.round((now.getHours() * 60 + now.getMinutes()) / slotMinutes) * slotMinutes;
-        const startMinute = workday.startHour * 60;
-        const latestStartMinute = Math.max(startMinute, workday.endHour * 60 - slotMinutes);
-        const seededStartMinutes = Math.min(
-          latestStartMinute,
-          Math.max(startMinute, roundedNowMinutes)
-        );
+        const seededStartMinutes = Math.max(0, Math.min(24 * 60 - slotMinutes, roundedNowMinutes));
         seededValues = {
           day: todayKey,
           startTime: minutesToTime(seededStartMinutes),
@@ -741,16 +734,26 @@ export default function AddTaskDialog({
             <Alert variant="destructive">
               <AlertCircle className="size-4" />
               <AlertDescription>
-                Tasks cannot span multiple days. Reduce the duration to fit within working hours.
+                Tasks cannot span multiple days. Reduce duration or choose an earlier start time.
               </AlertDescription>
             </Alert>
           )}
 
-          {shouldCheckSchedule && scheduleSummary.outOfBounds && (
+          {shouldCheckSchedule && scheduleSummary.outsideWorkday && (
+            <Alert className="border-[color:var(--hud-warning-text)]/40 text-[color:var(--hud-warning-text)] [&>svg]:text-[color:var(--hud-warning-text)]">
+              <AlertCircle className="size-4" />
+              <AlertDescription className="text-[color:var(--hud-warning-text)]">
+                Outside your workday ({minutesToTime(workday.startHour * 60)} -{' '}
+                {minutesToTime(workday.endHour * 60)}). This is allowed.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {shouldCheckSchedule && scheduleSummary.invalidRange && (
             <Alert variant="destructive">
               <AlertCircle className="size-4" />
               <AlertDescription>
-                This task extends beyond work hours ({minutesToTime(workday.endHour * 60)}).
+                Invalid time range. Choose a start time and duration that end before midnight.
               </AlertDescription>
             </Alert>
           )}
