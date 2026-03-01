@@ -46,8 +46,6 @@ export default function LoginView() {
         ...(mfaTicket ? { mfaTicket, mfaCode: mfaCode.trim() } : {}),
       });
       setCloudSession({
-        token: session.token,
-        refreshToken: session.refreshToken,
         orgId: session.defaultOrgId,
         userId: session.user?.id ?? null,
       });

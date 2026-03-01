@@ -2,6 +2,7 @@ export interface CloudUser {
   id: string;
   email: string;
   name: string;
+  appTheme?: 'default' | 'sugar-plum' | 'vibrant-pop' | 'mono' | 'white' | null;
   emailVerified?: boolean;
   emailVerifiedAt?: string | null;
   mfaEnabled?: boolean;
@@ -16,6 +17,7 @@ export interface CloudOrg {
 
 interface CloudRequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  // Deprecated: auth now relies on httpOnly cookies.
   token?: string | null;
   body?: unknown;
   cache?: RequestCache;
@@ -109,7 +111,6 @@ export function getCloudSseUrl(path: string, params?: Record<string, string>) {
 export async function cloudRequest<T>(path: string, options: CloudRequestOptions = {}): Promise<T> {
   const {
     method = 'GET',
-    token,
     body,
     cache = 'no-store',
     headers: customHeaders,
@@ -121,10 +122,6 @@ export async function cloudRequest<T>(path: string, options: CloudRequestOptions
     Pragma: 'no-cache',
     ...(customHeaders ?? {}),
   };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
 
   const timeoutController = new AbortController();
   const timeoutId =

@@ -125,8 +125,8 @@ export default function InboxPanel({
         <div
           className={
             isSidebar
-              ? 'mt-3 min-h-0 space-y-2 overflow-y-auto pr-1'
-              : 'mt-3 flex gap-3 overflow-x-auto pb-2'
+              ? 'mt-3 min-h-0 space-y-2 overflow-x-hidden overflow-y-auto pr-1'
+              : 'mt-3 flex gap-3 overflow-x-auto overflow-y-hidden pb-2'
           }
         >
           {visibleTasks.map((task) => (
@@ -139,6 +139,8 @@ export default function InboxPanel({
               blockStyle={{
                 minWidth: isSidebar ? '100%' : '250px',
                 maxWidth: isSidebar ? '100%' : '250px',
+                width: isSidebar ? '100%' : undefined,
+                overflow: 'hidden',
               }}
             />
           ))}

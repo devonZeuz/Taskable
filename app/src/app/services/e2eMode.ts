@@ -16,7 +16,17 @@ export function isDeterministicDndMode(): boolean {
   }
 
   try {
-    return window.localStorage.getItem(DND_HOOK_STORAGE_KEY) === 'true';
+    const storageEnabled = window.localStorage.getItem(DND_HOOK_STORAGE_KEY) === 'true';
+    if (!storageEnabled) return false;
+
+    // Keep deterministic DnD hooks available for automated E2E runs, but
+    // prevent leaked localStorage flags from affecting normal user sessions.
+    if (window.navigator.webdriver === true) {
+      return true;
+    }
+
+    window.localStorage.removeItem(DND_HOOK_STORAGE_KEY);
+    return false;
   } catch {
     return false;
   }

@@ -73,12 +73,14 @@ export default function GeneralSettings() {
                 }`}
               >
                 {option.value === 'sugar-plum'
-                  ? 'Pink-forward visual palette'
-                  : option.value === 'white'
-                    ? 'Clean bright white interface'
-                    : option.value === 'mono'
-                      ? 'Pure black and white'
-                      : 'Neutral black/white with softer contrast'}
+                  ? 'Soft plum and blush palette'
+                  : option.value === 'vibrant-pop'
+                    ? 'High-energy electric palette'
+                    : option.value === 'white'
+                      ? 'Clean bright white interface'
+                      : option.value === 'mono'
+                        ? 'Pure black and white'
+                        : 'Neutral black/white with softer contrast'}
               </p>
             </button>
           ))}

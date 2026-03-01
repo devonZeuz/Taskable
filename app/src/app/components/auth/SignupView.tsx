@@ -6,7 +6,12 @@ import {
   isCloudUnreachableError,
   registerWithPassword,
 } from '../../services/authClient';
-import { writeCloudTutorialCompleted } from '../../services/authStorage';
+import {
+  writeCloudTutorialCompleted,
+  writeCloudTutorialPending,
+  writeCloudWorkdaySetupCompleted,
+  writeCloudWorkdaySetupPending,
+} from '../../services/authStorage';
 import { useOnboarding } from '../../context/OnboardingContext';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -47,10 +52,11 @@ export default function SignupView() {
       const nextUserId = session.user?.id ?? null;
       if (nextUserId) {
         writeCloudTutorialCompleted(nextUserId, false);
+        writeCloudTutorialPending(nextUserId, true);
+        writeCloudWorkdaySetupCompleted(nextUserId, false);
+        writeCloudWorkdaySetupPending(nextUserId, true);
       }
       setCloudSession({
-        token: session.token,
-        refreshToken: session.refreshToken,
         orgId: session.defaultOrgId,
         userId: nextUserId,
       });

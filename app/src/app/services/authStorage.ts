@@ -9,6 +9,12 @@ export const CLOUD_USER_ID_STORAGE_KEY = 'taskable:cloud-user-id';
 export const CLOUD_AUTO_SYNC_STORAGE_KEY = 'taskable:cloud-auto-sync';
 export const LOCAL_TUTORIAL_COMPLETED_STORAGE_KEY = 'taskable:tutorial:local-completed';
 export const CLOUD_TUTORIAL_COMPLETED_STORAGE_PREFIX = 'taskable:tutorial:cloud-completed:';
+export const CLOUD_TUTORIAL_PENDING_STORAGE_PREFIX = 'taskable:tutorial:cloud-pending:';
+export const LOCAL_WORKDAY_SETUP_COMPLETED_STORAGE_KEY = 'taskable:workday-setup:local-completed';
+export const LOCAL_WORKDAY_SETUP_PENDING_STORAGE_KEY = 'taskable:workday-setup:local-pending';
+export const CLOUD_WORKDAY_SETUP_COMPLETED_STORAGE_PREFIX =
+  'taskable:workday-setup:cloud-completed:';
+export const CLOUD_WORKDAY_SETUP_PENDING_STORAGE_PREFIX = 'taskable:workday-setup:cloud-pending:';
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -62,7 +68,7 @@ export function writePlannerMode(mode: PlannerMode | null) {
 }
 
 export function readCloudToken(): string | null {
-  return safeGetItem(CLOUD_TOKEN_STORAGE_KEY);
+  return null;
 }
 
 export function readCloudUserId(): string | null {
@@ -70,11 +76,23 @@ export function readCloudUserId(): string | null {
 }
 
 export function hasCloudToken(): boolean {
-  return Boolean(readCloudToken());
+  return false;
 }
 
 function getCloudTutorialStorageKey(userId: string): string {
   return `${CLOUD_TUTORIAL_COMPLETED_STORAGE_PREFIX}${userId}`;
+}
+
+function getCloudTutorialPendingStorageKey(userId: string): string {
+  return `${CLOUD_TUTORIAL_PENDING_STORAGE_PREFIX}${userId}`;
+}
+
+function getCloudWorkdaySetupStorageKey(userId: string): string {
+  return `${CLOUD_WORKDAY_SETUP_COMPLETED_STORAGE_PREFIX}${userId}`;
+}
+
+function getCloudWorkdaySetupPendingStorageKey(userId: string): string {
+  return `${CLOUD_WORKDAY_SETUP_PENDING_STORAGE_PREFIX}${userId}`;
 }
 
 export function readLocalTutorialCompleted(): boolean {
@@ -84,6 +102,29 @@ export function readLocalTutorialCompleted(): boolean {
 export function readCloudTutorialCompleted(userId: string | null | undefined): boolean {
   if (!userId) return false;
   return safeGetItem(getCloudTutorialStorageKey(userId)) === 'true';
+}
+
+export function readCloudTutorialPending(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  return safeGetItem(getCloudTutorialPendingStorageKey(userId)) === 'true';
+}
+
+export function readLocalWorkdaySetupCompleted(): boolean {
+  return safeGetItem(LOCAL_WORKDAY_SETUP_COMPLETED_STORAGE_KEY) === 'true';
+}
+
+export function readLocalWorkdaySetupPending(): boolean {
+  return safeGetItem(LOCAL_WORKDAY_SETUP_PENDING_STORAGE_KEY) === 'true';
+}
+
+export function readCloudWorkdaySetupCompleted(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  return safeGetItem(getCloudWorkdaySetupStorageKey(userId)) === 'true';
+}
+
+export function readCloudWorkdaySetupPending(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  return safeGetItem(getCloudWorkdaySetupPendingStorageKey(userId)) === 'true';
 }
 
 export function writeLocalTutorialCompleted(completed: boolean) {
@@ -104,23 +145,60 @@ export function writeCloudTutorialCompleted(userId: string, completed: boolean) 
   notifyAuthStorageUpdated();
 }
 
+export function writeCloudTutorialPending(userId: string, pending: boolean) {
+  if (pending) {
+    safeSetItem(getCloudTutorialPendingStorageKey(userId), 'true');
+  } else {
+    safeRemoveItem(getCloudTutorialPendingStorageKey(userId));
+  }
+  notifyAuthStorageUpdated();
+}
+
+export function writeLocalWorkdaySetupCompleted(completed: boolean) {
+  if (completed) {
+    safeSetItem(LOCAL_WORKDAY_SETUP_COMPLETED_STORAGE_KEY, 'true');
+  } else {
+    safeRemoveItem(LOCAL_WORKDAY_SETUP_COMPLETED_STORAGE_KEY);
+  }
+  notifyAuthStorageUpdated();
+}
+
+export function writeLocalWorkdaySetupPending(pending: boolean) {
+  if (pending) {
+    safeSetItem(LOCAL_WORKDAY_SETUP_PENDING_STORAGE_KEY, 'true');
+  } else {
+    safeRemoveItem(LOCAL_WORKDAY_SETUP_PENDING_STORAGE_KEY);
+  }
+  notifyAuthStorageUpdated();
+}
+
+export function writeCloudWorkdaySetupCompleted(userId: string, completed: boolean) {
+  if (completed) {
+    safeSetItem(getCloudWorkdaySetupStorageKey(userId), 'true');
+  } else {
+    safeRemoveItem(getCloudWorkdaySetupStorageKey(userId));
+  }
+  notifyAuthStorageUpdated();
+}
+
+export function writeCloudWorkdaySetupPending(userId: string, pending: boolean) {
+  if (pending) {
+    safeSetItem(getCloudWorkdaySetupPendingStorageKey(userId), 'true');
+  } else {
+    safeRemoveItem(getCloudWorkdaySetupPendingStorageKey(userId));
+  }
+  notifyAuthStorageUpdated();
+}
+
 export function saveCloudSession({
-  token,
-  refreshToken,
   orgId,
   userId,
 }: {
-  token: string;
+  token?: string | null;
   refreshToken?: string | null;
   orgId?: string | null;
   userId?: string | null;
 }) {
-  safeSetItem(CLOUD_TOKEN_STORAGE_KEY, token);
-  if (typeof refreshToken === 'string' && refreshToken.length > 0) {
-    safeSetItem(CLOUD_REFRESH_TOKEN_STORAGE_KEY, refreshToken);
-  } else if (refreshToken === null) {
-    safeRemoveItem(CLOUD_REFRESH_TOKEN_STORAGE_KEY);
-  }
   if (typeof orgId === 'string' && orgId.length > 0) {
     safeSetItem(CLOUD_ORG_STORAGE_KEY, orgId);
   }
@@ -133,8 +211,6 @@ export function saveCloudSession({
 }
 
 export function clearCloudSessionStorage() {
-  safeRemoveItem(CLOUD_TOKEN_STORAGE_KEY);
-  safeRemoveItem(CLOUD_REFRESH_TOKEN_STORAGE_KEY);
   safeRemoveItem(CLOUD_ORG_STORAGE_KEY);
   safeRemoveItem(CLOUD_USER_ID_STORAGE_KEY);
   notifyAuthStorageUpdated();

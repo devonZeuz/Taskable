@@ -16,6 +16,10 @@ function getCurrentToasterTheme(): NonNullable<ToasterProps['theme']> {
     return 'dark';
   }
 
+  if (appTheme === 'vibrant-pop') {
+    return 'dark';
+  }
+
   if (appTheme === 'white') {
     return 'light';
   }

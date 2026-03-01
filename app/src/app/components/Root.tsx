@@ -2,6 +2,7 @@ import { Outlet, Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { TaskProvider, useTasks } from '../context/TaskContext';
 import { TeamMembersProvider } from '../context/TeamMembersContext';
 import { WorkdayProvider } from '../context/WorkdayContext';
+import { useWorkday } from '../context/WorkdayContext';
 import { NotificationSettingsProvider } from '../context/NotificationSettingsContext';
 import { CloudSyncProvider, useCloudSync } from '../context/CloudSyncContext';
 import { UserPreferencesProvider, useUserPreferences } from '../context/UserPreferencesContext';
@@ -10,7 +11,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { Minimize2, Users, User } from 'lucide-react';
 import { Button } from './ui/button';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   desktopCloseCompact,
@@ -22,10 +23,24 @@ import { CLOUD_API_BASE_URL, CLOUD_SYNC_ENABLED } from '../services/cloudApi';
 import { getDayKey, getDayKeyFromDateTime } from '../services/scheduling';
 import { normalizeExecutionStatus } from '../services/taskTimer';
 import type { PlannerMode } from '../services/authStorage';
-import { readCloudTutorialCompleted } from '../services/authStorage';
+import {
+  AUTH_STORAGE_EVENT,
+  readCloudTutorialCompleted,
+  readCloudTutorialPending,
+  readCloudUserId,
+  readCloudWorkdaySetupCompleted,
+  readCloudWorkdaySetupPending,
+  readLocalWorkdaySetupCompleted,
+  readLocalWorkdaySetupPending,
+  writeCloudWorkdaySetupCompleted,
+  writeCloudWorkdaySetupPending,
+  writeLocalWorkdaySetupCompleted,
+  writeLocalWorkdaySetupPending,
+} from '../services/authStorage';
 import OnboardingTutorialModal from './onboarding/OnboardingTutorialModal';
 import { resolveExecutionModeV1Flag, resolveLayoutV1Flag } from '../flags';
 import { flushExecutionTelemetry } from '../services/executionTelemetry';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 
 const AUTO_START_SESSION_STORAGE_KEY = 'taskable:auto-start-fired';
 
@@ -62,6 +77,10 @@ export default function Root() {
                   <CloudSessionRuntimeGuard plannerMode={plannerMode} />
                   <CloudSyncErrorToasts />
                   <DevDemoDataButton plannerMode={plannerMode} isCompactRoute={isCompactRoute} />
+                  <PlannerWorkdaySetupPrompt
+                    plannerMode={plannerMode}
+                    isCompactRoute={isCompactRoute}
+                  />
                   <PlannerOnboardingTutorial
                     plannerMode={plannerMode}
                     isCompactRoute={isCompactRoute}
@@ -94,18 +113,30 @@ function AppShellContainer({
   isTeamView: boolean;
   layoutV1Enabled: boolean;
 }) {
+  const { mode } = useOnboarding();
+  const {
+    enabled: cloudEnabled,
+    token: cloudToken,
+    activeOrgId,
+    members: cloudMembers,
+  } = useCloudSync();
   const {
     preferences: { uiDensity },
   } = useUserPreferences();
+  const showTeamsTab =
+    mode === 'cloud' &&
+    cloudEnabled &&
+    Boolean(cloudToken && activeOrgId) &&
+    cloudMembers.length > 1;
 
   return (
     <div
       data-testid="app-shell"
       data-density={uiDensity}
-      className="relative flex h-screen h-[100dvh] min-h-0 flex-col overflow-hidden bg-background"
+      className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background"
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--board-bg)] text-[var(--board-text)]">
+        <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--board-bg)] text-[var(--board-text)]">
           <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
 
           {!isCompactRoute && !layoutV1Enabled && (
@@ -131,21 +162,23 @@ function AppShellContainer({
                       Personal
                     </Button>
                   </Link>
-                  <Link to="/team">
-                    <Button
-                      data-testid="nav-team"
-                      variant="ghost"
-                      size="sm"
-                      className={`h-10 gap-2 ui-v1-radius-sm border px-4 ${
-                        isTeamView
-                          ? 'ui-hud-btn-soft'
-                          : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
-                      }`}
-                    >
-                      <Users className="size-4" />
-                      Team
-                    </Button>
-                  </Link>
+                  {showTeamsTab && (
+                    <Link to="/team">
+                      <Button
+                        data-testid="nav-team"
+                        variant="ghost"
+                        size="sm"
+                        className={`h-10 gap-2 ui-v1-radius-sm border px-4 ${
+                          isTeamView
+                            ? 'ui-hud-btn-soft'
+                            : 'border-[color:var(--hud-border)] bg-transparent text-[color:var(--hud-text)] opacity-80 hover:bg-[var(--hud-surface-soft)] hover:opacity-100'
+                        }`}
+                      >
+                        <Users className="size-4" />
+                        Team
+                      </Button>
+                    </Link>
+                  )}
                 </div>
               </div>
             </>
@@ -170,14 +203,7 @@ function TaskHotkeys() {
   } = useTasks();
   const location = useLocation();
   const navigate = useNavigate();
-  const {
-    user,
-    canDeleteTasks,
-    presenceLocks,
-    isTaskConflictLocked,
-    openConflictResolver,
-    activeOrgRole,
-  } = useCloudSync();
+  const { canDeleteTasks, activeOrgRole } = useCloudSync();
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -249,18 +275,6 @@ function TaskHotkeys() {
           toast.error(`Role "${activeOrgRole ?? 'viewer'}" cannot delete tasks in this workspace.`);
           return;
         }
-        if (isTaskConflictLocked(selectedTask.id)) {
-          toast.error('Task has a sync conflict. Resolve it before deleting.');
-          openConflictResolver(selectedTask.id);
-          return;
-        }
-        const taskLock = presenceLocks.find(
-          (lock) => lock.scope === 'task' && lock.targetId === selectedTask.id
-        );
-        if (taskLock && taskLock.userId !== user?.id) {
-          toast.error(`${taskLock.userName} is editing this task.`);
-          return;
-        }
         deleteTask(selectedTask.id);
         clearSelectedTask();
         toast.success('Task deleted.');
@@ -311,17 +325,13 @@ function TaskHotkeys() {
     canUndo,
     clearSelectedTask,
     deleteTask,
-    isTaskConflictLocked,
     location.pathname,
     location.search,
     navigate,
-    openConflictResolver,
-    presenceLocks,
     redo,
     selectedTaskId,
     tasks,
     undo,
-    user?.id,
   ]);
 
   return null;
@@ -652,6 +662,196 @@ function CloudSessionRuntimeGuard({ plannerMode }: { plannerMode: PlannerMode })
   return null;
 }
 
+const WORKDAY_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => index);
+
+function formatWorkdayHour(hour: number) {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+function PlannerWorkdaySetupPrompt({
+  plannerMode,
+  isCompactRoute,
+}: {
+  plannerMode: PlannerMode;
+  isCompactRoute: boolean;
+}) {
+  const { cloudUserId } = useOnboarding();
+  const { user } = useCloudSync();
+  const { workday, setWorkday } = useWorkday();
+  const resolvedCloudUserId = user?.id ?? cloudUserId ?? null;
+  const [startHour, setStartHour] = useState(workday.startHour);
+  const [endHour, setEndHour] = useState(workday.endHour);
+  const [isOpen, setIsOpen] = useState(false);
+  const [dismissedForSession, setDismissedForSession] = useState(false);
+  const [pendingCloudCompletion, setPendingCloudCompletion] = useState(false);
+
+  const shouldShowPrompt = useMemo(() => {
+    if (isCompactRoute) return false;
+    if (dismissedForSession) return false;
+    if (plannerMode === 'local') {
+      return readLocalWorkdaySetupPending() && !readLocalWorkdaySetupCompleted();
+    }
+    if (pendingCloudCompletion) return false;
+    const effectiveCloudUserId = resolvedCloudUserId ?? readCloudUserId();
+    if (!effectiveCloudUserId) return false;
+    return (
+      readCloudWorkdaySetupPending(effectiveCloudUserId) &&
+      !readCloudWorkdaySetupCompleted(effectiveCloudUserId)
+    );
+  }, [
+    dismissedForSession,
+    isCompactRoute,
+    pendingCloudCompletion,
+    plannerMode,
+    resolvedCloudUserId,
+  ]);
+
+  useEffect(() => {
+    if (shouldShowPrompt) {
+      setStartHour(workday.startHour);
+      setEndHour(workday.endHour);
+    }
+    setIsOpen(shouldShowPrompt);
+  }, [shouldShowPrompt, workday.endHour, workday.startHour]);
+
+  useEffect(() => {
+    if (!pendingCloudCompletion || plannerMode !== 'cloud') return;
+    const effectiveCloudUserId = resolvedCloudUserId ?? readCloudUserId();
+    if (!effectiveCloudUserId) return;
+    writeCloudWorkdaySetupPending(effectiveCloudUserId, false);
+    writeCloudWorkdaySetupCompleted(effectiveCloudUserId, true);
+    setPendingCloudCompletion(false);
+  }, [pendingCloudCompletion, plannerMode, resolvedCloudUserId]);
+
+  const markCompleted = (nextStartHour: number, nextEndHour: number, applyWorkday: boolean) => {
+    if (applyWorkday) {
+      setWorkday({ startHour: nextStartHour, endHour: nextEndHour });
+    }
+    setDismissedForSession(true);
+
+    if (plannerMode === 'local') {
+      writeLocalWorkdaySetupPending(false);
+      writeLocalWorkdaySetupCompleted(true);
+    } else {
+      const effectiveCloudUserId = resolvedCloudUserId ?? readCloudUserId();
+      if (effectiveCloudUserId) {
+        writeCloudWorkdaySetupPending(effectiveCloudUserId, false);
+        writeCloudWorkdaySetupCompleted(effectiveCloudUserId, true);
+      } else {
+        setPendingCloudCompletion(true);
+      }
+    }
+
+    setIsOpen(false);
+  };
+
+  const handleStartChange = (value: string) => {
+    const parsed = Number(value);
+    if (Number.isNaN(parsed)) return;
+    const normalizedStart = Math.max(0, Math.min(22, parsed));
+    const normalizedEnd = endHour <= normalizedStart ? Math.min(23, normalizedStart + 1) : endHour;
+    setStartHour(normalizedStart);
+    setEndHour(normalizedEnd);
+  };
+
+  const handleEndChange = (value: string) => {
+    const parsed = Number(value);
+    if (Number.isNaN(parsed)) return;
+    const normalizedEnd = Math.max(1, Math.min(23, parsed));
+    const normalizedStart = startHour >= normalizedEnd ? Math.max(0, normalizedEnd - 1) : startHour;
+    setEndHour(normalizedEnd);
+    setStartHour(normalizedStart);
+  };
+
+  return (
+    <Dialog
+      open={isOpen}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && isOpen) {
+          markCompleted(startHour, endHour, false);
+        } else {
+          if (nextOpen) {
+            setDismissedForSession(false);
+          }
+          setIsOpen(nextOpen);
+        }
+      }}
+    >
+      <DialogContent
+        className="max-w-md border-[color:var(--hud-border)] bg-[var(--hud-surface)] text-[color:var(--hud-text)]"
+        onInteractOutside={(event) => event.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>Set your usual workday hours</DialogTitle>
+          <DialogDescription className="text-[color:var(--hud-muted)]">
+            This guides planning suggestions only. You can still schedule outside these hours.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div data-testid="workday-onboarding-modal" className="grid gap-3 py-1">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="grid gap-1.5 text-xs font-semibold text-[color:var(--hud-muted)]">
+              Start
+              <select
+                data-testid="workday-onboarding-start-select"
+                value={String(startHour)}
+                onChange={(event) => handleStartChange(event.target.value)}
+                className="h-10 rounded-md border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-3 text-sm text-[color:var(--hud-text)] outline-none focus:border-[color:var(--hud-outline)]"
+              >
+                {WORKDAY_HOUR_OPTIONS.slice(0, 23).map((hour) => (
+                  <option key={`workday-start-${hour}`} value={hour}>
+                    {formatWorkdayHour(hour)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1.5 text-xs font-semibold text-[color:var(--hud-muted)]">
+              End
+              <select
+                data-testid="workday-onboarding-end-select"
+                value={String(endHour)}
+                onChange={(event) => handleEndChange(event.target.value)}
+                className="h-10 rounded-md border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-3 text-sm text-[color:var(--hud-text)] outline-none focus:border-[color:var(--hud-outline)]"
+              >
+                {WORKDAY_HOUR_OPTIONS.slice(1).map((hour) => (
+                  <option key={`workday-end-${hour}`} value={hour}>
+                    {formatWorkdayHour(hour)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <p className="text-[11px] text-[color:var(--hud-muted)]">
+            Default is 08:00-17:00. You can update this later in Settings.
+          </p>
+
+          <div className="mt-1 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              data-testid="workday-onboarding-skip"
+              className="ui-hud-btn"
+              onClick={() => markCompleted(startHour, endHour, false)}
+            >
+              Skip for now
+            </Button>
+            <Button
+              type="button"
+              data-testid="workday-onboarding-save"
+              className="ui-hud-btn-accent"
+              onClick={() => markCompleted(startHour, endHour, true)}
+            >
+              Save hours
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PlannerOnboardingTutorial({
   plannerMode,
   isCompactRoute,
@@ -662,19 +862,47 @@ function PlannerOnboardingTutorial({
   const { cloudUserId, hasCompletedTutorial, markTutorialCompleted } = useOnboarding();
   const { user } = useCloudSync();
   const [isOpen, setIsOpen] = useState(false);
+  const [storageRevision, setStorageRevision] = useState(0);
   const resolvedCloudUserId = user?.id ?? cloudUserId ?? null;
+
+  useEffect(() => {
+    const handleStorageRefresh = () => {
+      setStorageRevision((value) => value + 1);
+    };
+    window.addEventListener(AUTH_STORAGE_EVENT, handleStorageRefresh);
+    window.addEventListener('storage', handleStorageRefresh);
+    return () => {
+      window.removeEventListener(AUTH_STORAGE_EVENT, handleStorageRefresh);
+      window.removeEventListener('storage', handleStorageRefresh);
+    };
+  }, []);
+
   const cloudTutorialCompleted = resolvedCloudUserId
     ? readCloudTutorialCompleted(resolvedCloudUserId)
     : false;
+  const cloudTutorialPending = resolvedCloudUserId
+    ? readCloudTutorialPending(resolvedCloudUserId)
+    : false;
+  const cloudWorkdaySetupCompleted = resolvedCloudUserId
+    ? readCloudWorkdaySetupCompleted(resolvedCloudUserId)
+    : false;
+  const cloudWorkdaySetupPending = resolvedCloudUserId
+    ? readCloudWorkdaySetupPending(resolvedCloudUserId)
+    : false;
+  const localWorkdaySetupCompleted = readLocalWorkdaySetupCompleted();
+  const localWorkdaySetupPending = readLocalWorkdaySetupPending();
   const tutorialCompleted =
-    plannerMode === 'cloud'
-      ? hasCompletedTutorial || cloudTutorialCompleted
-      : hasCompletedTutorial;
+    plannerMode === 'cloud' ? hasCompletedTutorial || cloudTutorialCompleted : hasCompletedTutorial;
+  const workdaySetupStillPending =
+    plannerMode === 'local'
+      ? localWorkdaySetupPending && !localWorkdaySetupCompleted
+      : Boolean(resolvedCloudUserId) && cloudWorkdaySetupPending && !cloudWorkdaySetupCompleted;
 
   const shouldShowTutorial =
-    plannerMode === 'local'
+    !workdaySetupStillPending &&
+    (plannerMode === 'local'
       ? !tutorialCompleted
-      : Boolean(resolvedCloudUserId) && !tutorialCompleted;
+      : Boolean(resolvedCloudUserId) && cloudTutorialPending && !tutorialCompleted);
 
   useEffect(() => {
     if (isCompactRoute) {
@@ -682,7 +910,7 @@ function PlannerOnboardingTutorial({
       return;
     }
     setIsOpen(shouldShowTutorial);
-  }, [isCompactRoute, shouldShowTutorial]);
+  }, [isCompactRoute, shouldShowTutorial, storageRevision]);
 
   if (plannerMode === 'cloud' && !resolvedCloudUserId) {
     return null;

@@ -148,7 +148,9 @@ export default function ProfileSettings() {
               autoComplete="off"
             />
             {deleteError ? (
-              <p className="text-xs font-medium text-[color:var(--hud-danger-text)]">{deleteError}</p>
+              <p className="text-xs font-medium text-[color:var(--hud-danger-text)]">
+                {deleteError}
+              </p>
             ) : null}
             <div className="flex justify-end">
               <Button

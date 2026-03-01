@@ -1,7 +1,7 @@
 .ui-system-v1 {
-  --ui-font-scale: 1;
-  --ui-space-scale: 1;
-  --ui-control-scale: 1;
+  --ui-font-scale: 0.8125;
+  --ui-space-scale: 0.8125;
+  --ui-control-scale: 0.8125;
 
   --ui-v1-space-0: 0px;
   --ui-v1-space-1: calc(4px * var(--ui-space-scale));

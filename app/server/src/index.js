@@ -243,6 +243,7 @@ const OPS_ALERT_OUTLOOK_FAIL_COUNT_THRESHOLD = Math.max(
   Number(process.env.OPS_ALERT_OUTLOOK_FAIL_COUNT_THRESHOLD || 3)
 );
 const METRICS_ACCESS_TOKEN = (process.env.METRICS_ACCESS_TOKEN || '').trim();
+const APP_THEME_VALUES = ['default', 'sugar-plum', 'vibrant-pop', 'mono', 'white'];
 const ADMIN_DEFAULT_PAGE_LIMIT = 50;
 const ADMIN_MAX_PAGE_LIMIT = 200;
 const ADMIN_RESEND_LIMIT_PER_DAY = 3;
@@ -1141,6 +1142,9 @@ const loginSchema = z.object({
     .refine((value) => /^\d{6}$/.test(value), 'MFA code must be a 6-digit number.')
     .optional(),
 });
+const appThemeUpdateSchema = z.object({
+  theme: z.enum(APP_THEME_VALUES),
+});
 const refreshSchema = z.object({
   refreshToken: z.string().min(16).optional(),
 });
@@ -1275,6 +1279,10 @@ async function verifyMicrosoftAccessToken(accessToken) {
 }
 
 function mapUserRow(userRow) {
+  const appTheme =
+    typeof userRow.app_theme === 'string' && APP_THEME_VALUES.includes(userRow.app_theme)
+      ? userRow.app_theme
+      : null;
   return {
     id: userRow.id,
     email: String(userRow.email || '')
@@ -1282,6 +1290,7 @@ function mapUserRow(userRow) {
       .toLowerCase(),
     name: userRow.name,
     created_at: userRow.created_at,
+    appTheme,
     emailVerified: Boolean(userRow.email_verified_at),
     emailVerifiedAt: userRow.email_verified_at || null,
     mfaEnabled: Boolean(userRow.mfa_enabled),
@@ -1292,7 +1301,7 @@ function mapUserRow(userRow) {
 function loadUserById(userId) {
   return db
     .prepare(
-      `SELECT id, email, name, created_at, email_verified_at, mfa_enabled, mfa_enrolled_at
+      `SELECT id, email, name, app_theme, created_at, email_verified_at, mfa_enabled, mfa_enrolled_at
        FROM users
        WHERE id = ?`
     )
@@ -1463,12 +1472,9 @@ function toAdminScopeTaskTitles({ orgIds }) {
   return new Map(rows.map((row) => [toConflictLookupKey(row.org_id, row.id), row.title]));
 }
 
-function authResponsePayload({ user, tokens, defaultOrgId }) {
+function authResponsePayload({ user, defaultOrgId }) {
   return {
     user: mapUserRow(user),
-    token: tokens.accessToken,
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
     defaultOrgId,
   };
 }
@@ -1569,80 +1575,84 @@ app.get('/metrics/slo', requireMetricsToken, (_req, res) => {
   });
 });
 
-app.post('/api/v1/auth/register', rateLimitAuth({ keyPrefix: 'auth-register' }), async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) {
-    sendError(res, 400, 'INVALID_INPUT', 'Invalid registration payload.', parsed.error.flatten());
-    return;
-  }
+app.post(
+  '/api/v1/auth/register',
+  rateLimitAuth({ keyPrefix: 'auth-register' }),
+  async (req, res) => {
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_INPUT', 'Invalid registration payload.', parsed.error.flatten());
+      return;
+    }
 
-  const { email, password, name } = parsed.data;
-  const existing = db
-    .prepare('SELECT id FROM users WHERE lower(trim(email)) = lower(trim(?))')
-    .get(email);
-  if (existing) {
-    sendError(res, 409, 'EMAIL_EXISTS', 'Email already exists.');
-    return;
-  }
+    const { email, password, name } = parsed.data;
+    const existing = db
+      .prepare('SELECT id FROM users WHERE lower(trim(email)) = lower(trim(?))')
+      .get(email);
+    if (existing) {
+      sendError(res, 409, 'EMAIL_EXISTS', 'Email already exists.');
+      return;
+    }
 
-  const userId = createId('usr');
-  const hash = await bcrypt.hash(password, 10);
-  const now = nowSqlDate();
+    const userId = createId('usr');
+    const hash = await bcrypt.hash(password, 10);
+    const now = nowSqlDate();
 
-  db.prepare(
-    'INSERT INTO users (id, email, password_hash, name, password_updated_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(userId, email, hash, name, now);
+    db.prepare(
+      'INSERT INTO users (id, email, password_hash, name, password_updated_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(userId, email, hash, name, now);
 
-  const orgId = createId('org');
-  db.prepare('INSERT INTO orgs (id, name, created_by) VALUES (?, ?, ?)').run(
-    orgId,
-    `${name}'s Workspace`,
-    userId
-  );
-  db.prepare('INSERT INTO org_members (org_id, user_id, role) VALUES (?, ?, ?)').run(
-    orgId,
-    userId,
-    'owner'
-  );
-
-  const user = loadUserById(userId);
-  const verificationToken = createAuthToken({
-    userId,
-    tokenType: 'email_verify',
-    ttlAmount: VERIFICATION_TOKEN_TTL_HOURS,
-    ttlUnit: 'hours',
-  });
-  const verificationDelivery = await queueVerificationEmail({
-    userId,
-    email,
-    name,
-    token: verificationToken,
-  });
-  if (verificationDelivery.failed && EMAIL_REQUIRE_DELIVERY) {
-    sendError(
-      res,
-      503,
-      'EMAIL_DELIVERY_FAILED',
-      'Unable to send verification email. Please try again.'
+    const orgId = createId('org');
+    db.prepare('INSERT INTO orgs (id, name, created_by) VALUES (?, ?, ?)').run(
+      orgId,
+      `${name}'s Workspace`,
+      userId
     );
-    return;
-  }
-  const tokens = issueSessionTokens({ user, req });
-  setAuthCookies(res, tokens);
+    db.prepare('INSERT INTO org_members (org_id, user_id, role) VALUES (?, ?, ?)').run(
+      orgId,
+      userId,
+      'owner'
+    );
 
-  res.status(201).json({
-    ...authResponsePayload({ user, tokens, defaultOrgId: orgId }),
-    verification: {
-      required: true,
-      delivery: {
-        queued: verificationDelivery.queued,
-        skipped: verificationDelivery.skipped,
-        provider: verificationDelivery.provider,
+    const user = loadUserById(userId);
+    const verificationToken = createAuthToken({
+      userId,
+      tokenType: 'email_verify',
+      ttlAmount: VERIFICATION_TOKEN_TTL_HOURS,
+      ttlUnit: 'hours',
+    });
+    const verificationDelivery = await queueVerificationEmail({
+      userId,
+      email,
+      name,
+      token: verificationToken,
+    });
+    if (verificationDelivery.failed && EMAIL_REQUIRE_DELIVERY) {
+      sendError(
+        res,
+        503,
+        'EMAIL_DELIVERY_FAILED',
+        'Unable to send verification email. Please try again.'
+      );
+      return;
+    }
+    const tokens = issueSessionTokens({ user, req });
+    setAuthCookies(res, tokens);
+
+    res.status(201).json({
+      ...authResponsePayload({ user, defaultOrgId: orgId }),
+      verification: {
+        required: true,
+        delivery: {
+          queued: verificationDelivery.queued,
+          skipped: verificationDelivery.skipped,
+          provider: verificationDelivery.provider,
+        },
+        previewToken: ENABLE_DEV_TOKEN_PREVIEW ? verificationToken : undefined,
       },
-      previewToken: ENABLE_DEV_TOKEN_PREVIEW ? verificationToken : undefined,
-    },
-  });
-});
+    });
+  }
+);
 
 app.post('/api/v1/auth/login', rateLimitAuth({ keyPrefix: 'auth-login' }), async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
@@ -1717,7 +1727,7 @@ app.post('/api/v1/auth/login', rateLimitAuth({ keyPrefix: 'auth-login' }), async
   setAuthCookies(res, tokens);
 
   res.json({
-    ...authResponsePayload({ user, tokens }),
+    ...authResponsePayload({ user }),
     verification: {
       required: !row.email_verified_at,
     },
@@ -1819,7 +1829,7 @@ app.post(
     setAuthCookies(res, tokens);
 
     res.json({
-      ...authResponsePayload({ user, tokens, defaultOrgId }),
+      ...authResponsePayload({ user, defaultOrgId }),
       authentication: {
         provider: 'microsoft',
         tenantId: microsoftIdentity.tenantId,
@@ -1889,7 +1899,7 @@ app.post(
     setAuthCookies(res, tokens);
 
     res.json({
-      ...authResponsePayload({ user, tokens }),
+      ...authResponsePayload({ user }),
       verification: {
         required: !session.email_verified_at,
       },
@@ -2255,6 +2265,29 @@ app.get('/api/v1/me', requireAuth, (req, res) => {
   res.json({ user: mapUserRow(req.user), orgs });
 });
 
+app.patch('/api/v1/me/theme', requireAuth, (req, res) => {
+  const parsed = appThemeUpdateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, 'INVALID_INPUT', 'Invalid theme payload.', parsed.error.flatten());
+    return;
+  }
+
+  db.prepare(
+    `UPDATE users
+     SET app_theme = ?
+     WHERE id = ?`
+  ).run(parsed.data.theme, req.user.id);
+
+  const nextUser = loadUserById(req.user.id);
+  if (!nextUser) {
+    sendError(res, 404, 'USER_NOT_FOUND', 'User account could not be found.');
+    return;
+  }
+
+  const orgs = mapOrgRows(req.user.id);
+  res.json({ user: mapUserRow(nextUser), orgs });
+});
+
 app.get('/api/v1/admin/overview', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
   const parsed = adminScopeQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -2541,89 +2574,109 @@ app.get('/api/v1/admin/orgs', requireAdminApiEnabled, requireAuth, requireOwner,
   });
 });
 
-app.get('/api/v1/admin/conflicts', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
-  const parsed = adminConflictsQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    sendError(res, 400, 'INVALID_INPUT', 'Invalid admin conflicts query.', parsed.error.flatten());
-    return;
+app.get(
+  '/api/v1/admin/conflicts',
+  requireAdminApiEnabled,
+  requireAuth,
+  requireOwner,
+  (req, res) => {
+    const parsed = adminConflictsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_INPUT',
+        'Invalid admin conflicts query.',
+        parsed.error.flatten()
+      );
+      return;
+    }
+
+    const scopedOrgIds = resolveAdminOrgScope(req, res);
+    if (scopedOrgIds === null) return;
+
+    const { limit, offset } = clampPageParams(parsed.data.limit, parsed.data.offset);
+    const allConflicts = buildConflictTimeline(fetchScopedConflictEvents({ orgIds: scopedOrgIds }));
+    const filteredConflicts =
+      parsed.data.status === 'all'
+        ? allConflicts
+        : allConflicts.filter((entry) => !entry.resolvedAt);
+    const taskTitleByKey = toAdminScopeTaskTitles({ orgIds: scopedOrgIds });
+
+    res.json({
+      total: filteredConflicts.length,
+      limit,
+      offset,
+      conflicts: filteredConflicts.slice(offset, offset + limit).map((conflict) => ({
+        orgId: conflict.orgId,
+        taskId: conflict.taskId,
+        userId: conflict.userId,
+        enteredAt: conflict.enteredAt,
+        resolvedAt: conflict.resolvedAt,
+        durationMs: conflict.durationMs ?? 0,
+        strategy: conflict.strategy,
+        title: taskTitleByKey.get(toConflictLookupKey(conflict.orgId, conflict.taskId)) ?? null,
+      })),
+    });
   }
+);
 
-  const scopedOrgIds = resolveAdminOrgScope(req, res);
-  if (scopedOrgIds === null) return;
+app.get(
+  '/api/v1/admin/sync-health',
+  requireAdminApiEnabled,
+  requireAuth,
+  requireOwner,
+  (req, res) => {
+    const parsed = adminScopeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_INPUT',
+        'Invalid admin sync-health query.',
+        parsed.error.flatten()
+      );
+      return;
+    }
 
-  const { limit, offset } = clampPageParams(parsed.data.limit, parsed.data.offset);
-  const allConflicts = buildConflictTimeline(fetchScopedConflictEvents({ orgIds: scopedOrgIds }));
-  const filteredConflicts =
-    parsed.data.status === 'all' ? allConflicts : allConflicts.filter((entry) => !entry.resolvedAt);
-  const taskTitleByKey = toAdminScopeTaskTitles({ orgIds: scopedOrgIds });
+    const scopedOrgIds = resolveAdminOrgScope(req, res);
+    if (scopedOrgIds === null) return;
 
-  res.json({
-    total: filteredConflicts.length,
-    limit,
-    offset,
-    conflicts: filteredConflicts.slice(offset, offset + limit).map((conflict) => ({
-      orgId: conflict.orgId,
-      taskId: conflict.taskId,
-      userId: conflict.userId,
-      enteredAt: conflict.enteredAt,
-      resolvedAt: conflict.resolvedAt,
-      durationMs: conflict.durationMs ?? 0,
-      strategy: conflict.strategy,
-      title: taskTitleByKey.get(toConflictLookupKey(conflict.orgId, conflict.taskId)) ?? null,
-    })),
-  });
-});
+    const events24h = fetchScopedOperationalEvents({
+      orgIds: scopedOrgIds,
+      sinceIso: isoAtWindowStart(24 * 60),
+    });
+    const events7d = fetchScopedOperationalEvents({
+      orgIds: scopedOrgIds,
+      sinceIso: isoAtWindowStart(7 * 24 * 60),
+    });
+    const alertWindowEvents = fetchScopedOperationalEvents({
+      orgIds: scopedOrgIds,
+      sinceIso: isoAtWindowStart(OPS_ALERT_WINDOW_MINUTES),
+    });
+    const slo = aggregateOperationalSlo(events24h);
+    const alerts = evaluateOperationalAlerts(alertWindowEvents, {
+      windowMinutes: OPS_ALERT_WINDOW_MINUTES,
+      thresholds: {
+        syncErrorRate: OPS_ALERT_SYNC_ERROR_RATE_THRESHOLD,
+        sseDisconnectRatio: OPS_ALERT_SSE_DISCONNECT_RATIO_THRESHOLD,
+        outlookImportFailures: OPS_ALERT_OUTLOOK_FAIL_COUNT_THRESHOLD,
+      },
+    });
 
-app.get('/api/v1/admin/sync-health', requireAdminApiEnabled, requireAuth, requireOwner, (req, res) => {
-  const parsed = adminScopeQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    sendError(
-      res,
-      400,
-      'INVALID_INPUT',
-      'Invalid admin sync-health query.',
-      parsed.error.flatten()
-    );
-    return;
+    res.json({
+      generatedAt: new Date().toISOString(),
+      syncErrors: {
+        last24h: events24h.filter((event) => event.event_type === 'sync.fail').length,
+        last7d: events7d.filter((event) => event.event_type === 'sync.fail').length,
+      },
+      sseConnectedRatio: slo.realtime.sseConnectedRatio,
+      slo,
+      alerts,
+      windowMinutes: OPS_ALERT_WINDOW_MINUTES,
+    });
   }
-
-  const scopedOrgIds = resolveAdminOrgScope(req, res);
-  if (scopedOrgIds === null) return;
-
-  const events24h = fetchScopedOperationalEvents({
-    orgIds: scopedOrgIds,
-    sinceIso: isoAtWindowStart(24 * 60),
-  });
-  const events7d = fetchScopedOperationalEvents({
-    orgIds: scopedOrgIds,
-    sinceIso: isoAtWindowStart(7 * 24 * 60),
-  });
-  const alertWindowEvents = fetchScopedOperationalEvents({
-    orgIds: scopedOrgIds,
-    sinceIso: isoAtWindowStart(OPS_ALERT_WINDOW_MINUTES),
-  });
-  const slo = aggregateOperationalSlo(events24h);
-  const alerts = evaluateOperationalAlerts(alertWindowEvents, {
-    windowMinutes: OPS_ALERT_WINDOW_MINUTES,
-    thresholds: {
-      syncErrorRate: OPS_ALERT_SYNC_ERROR_RATE_THRESHOLD,
-      sseDisconnectRatio: OPS_ALERT_SSE_DISCONNECT_RATIO_THRESHOLD,
-      outlookImportFailures: OPS_ALERT_OUTLOOK_FAIL_COUNT_THRESHOLD,
-    },
-  });
-
-  res.json({
-    generatedAt: new Date().toISOString(),
-    syncErrors: {
-      last24h: events24h.filter((event) => event.event_type === 'sync.fail').length,
-      last7d: events7d.filter((event) => event.event_type === 'sync.fail').length,
-    },
-    sseConnectedRatio: slo.realtime.sseConnectedRatio,
-    slo,
-    alerts,
-    windowMinutes: OPS_ALERT_WINDOW_MINUTES,
-  });
-});
+);
 
 app.get(
   '/api/v1/admin/email-health',
@@ -3414,7 +3467,7 @@ app.get('/api/v1/orgs/:orgId/tasks', requireAuth, requireOrgAccess, (req, res) =
     : [];
 
   const nextSince =
-    rows.length > 0 ? toIsoOrNull(rows[0].updated_at) ?? new Date().toISOString() : null;
+    rows.length > 0 ? (toIsoOrNull(rows[0].updated_at) ?? new Date().toISOString()) : null;
 
   res.json({
     tasks,

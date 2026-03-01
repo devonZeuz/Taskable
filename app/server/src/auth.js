@@ -61,7 +61,7 @@ function requireAuthHandler(options, req, res, next) {
     }
     const user = db
       .prepare(
-        `SELECT id, email, name, created_at, email_verified_at, mfa_enabled, mfa_enrolled_at
+        `SELECT id, email, name, app_theme, created_at, email_verified_at, mfa_enabled, mfa_enrolled_at
          FROM users
          WHERE id = ?`
       )

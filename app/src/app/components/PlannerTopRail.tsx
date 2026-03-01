@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 
 interface PlannerTopRailProps {
   view: 'personal' | 'team';
+  showTeamsNav?: boolean;
   dateLabel: string;
   timelineZoom: number;
   executionModeActive?: boolean;
@@ -25,6 +26,7 @@ interface PlannerTopRailProps {
 
 export default function PlannerTopRail({
   view,
+  showTeamsNav = true,
   dateLabel,
   timelineZoom,
   executionModeActive = false,
@@ -127,24 +129,26 @@ export default function PlannerTopRail({
               </Button>
             </Link>
           </div>
-          <div
-            data-testid="toprail-nav-team"
-            className="flex items-center rounded-md border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] p-1"
-          >
-            <Link to="/team">
-              <Button
-                data-testid="nav-team"
-                type="button"
-                variant="ghost"
-                className={`planner-control h-8 ui-v1-radius-xs px-2 text-[11px] md:px-3 ${
-                  view === 'team' ? 'ui-hud-btn-soft' : 'ui-hud-btn'
-                }`}
-              >
-                <span className="hidden sm:inline">Team</span>
-                <span className="sm:hidden">T</span>
-              </Button>
-            </Link>
-          </div>
+          {showTeamsNav && (
+            <div
+              data-testid="toprail-nav-team"
+              className="flex items-center rounded-md border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] p-1"
+            >
+              <Link to="/team">
+                <Button
+                  data-testid="nav-team"
+                  type="button"
+                  variant="ghost"
+                  className={`planner-control h-8 ui-v1-radius-xs px-2 text-[11px] md:px-3 ${
+                    view === 'team' ? 'ui-hud-btn-soft' : 'ui-hud-btn'
+                  }`}
+                >
+                  <span className="hidden sm:inline">Team</span>
+                  <span className="sm:hidden">T</span>
+                </Button>
+              </Link>
+            </div>
+          )}
           <Button
             type="button"
             variant="ghost"

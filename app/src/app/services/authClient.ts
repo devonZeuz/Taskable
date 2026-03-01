@@ -1,17 +1,12 @@
 import { cloudRequest, CloudRequestError, type CloudUser } from './cloudApi';
 
 export interface CloudAuthSession {
-  token: string;
-  refreshToken: string | null;
   defaultOrgId: string | null;
   user: CloudUser | null;
   verificationRequired: boolean;
 }
 
 interface CloudAuthPayload {
-  token?: string;
-  accessToken?: string;
-  refreshToken?: string;
   defaultOrgId?: string;
   user?: CloudUser;
   verification?: {
@@ -20,14 +15,7 @@ interface CloudAuthPayload {
 }
 
 function toCloudAuthSession(payload: CloudAuthPayload): CloudAuthSession {
-  const token = payload.accessToken ?? payload.token ?? '';
-  if (!token) {
-    throw new Error('Authentication response did not include an access token.');
-  }
-
   return {
-    token,
-    refreshToken: payload.refreshToken ?? null,
     defaultOrgId: payload.defaultOrgId ?? null,
     user: payload.user ?? null,
     verificationRequired: Boolean(payload.verification?.required),

@@ -25,7 +25,6 @@ import DayColumn from './DayColumn';
 import UndoRedoControls from './UndoRedoControls';
 import DailyPlanningPanel from './DailyPlanningPanel';
 import TaskQuickActionsHub from './TaskQuickActionsHub';
-import BlockTaskButton from './BlockTaskButton';
 import ConflictResolutionBanner from './ConflictResolutionBanner';
 import { SettingsDrawerInner } from './settings/SettingsDrawer';
 import RealtimePresenceBadge from './RealtimePresenceBadge';
@@ -35,7 +34,7 @@ import { useUserPreferences } from '../context/UserPreferencesContext';
 import {
   getDayKey,
   getDayKeyFromDateTime,
-  getWorkdayTimeSlots,
+  timeToMinutes,
   minutesToTime,
 } from '../services/scheduling';
 import { parseTaskIdFromSearch, removeTaskIdFromSearch } from '../services/taskDeepLink';
@@ -43,6 +42,7 @@ import {
   centerScrollLeft,
   getMinutesSinceMidnightInTimeZone,
   getNowAxisOffsetPx,
+  getTimelineTimeSlots,
 } from '../services/timeAxisNow';
 import { getNextTimelineZoom } from '../services/timelineZoom';
 import PlannerTopRail from './PlannerTopRail';
@@ -50,12 +50,17 @@ import { resolveExecutionModeV1Flag, resolveLayoutV1Flag } from '../flags';
 import { desktopToggleCompact, isDesktopShell } from '../services/desktopShell';
 
 const PERSONAL_NOW_SNAP_SESSION_KEY = 'taskable:now-snap:personal';
-
 export default function PersonalView() {
   const location = useLocation();
   const navigate = useNavigate();
   const { tasks } = useTasks();
-  const { enabled: cloudEnabled, token: cloudToken, activeOrgId, user: cloudUser } = useCloudSync();
+  const {
+    enabled: cloudEnabled,
+    token: cloudToken,
+    activeOrgId,
+    user: cloudUser,
+    members: cloudMembers,
+  } = useCloudSync();
   const { workday } = useWorkday();
   const { preferences, setPreference } = useUserPreferences();
   const {
@@ -75,14 +80,18 @@ export default function PersonalView() {
   const [sidebarPanel, setSidebarPanel] = useState<'inbox' | 'capacity' | 'notes' | null>(null);
   const [showBackToToday, setShowBackToToday] = useState(false);
   const [showJumpToNow, setShowJumpToNow] = useState(false);
+  const [todaySnapResistanceOffset, setTodaySnapResistanceOffset] = useState(0);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
   const todayRowRef = useRef<HTMLDivElement | null>(null);
   const hasInitialScrollRef = useRef(false);
   const hasUserScrolledRef = useRef(false);
   const hasAutoNowSnapRef = useRef(false);
+  const resistanceResetTimerRef = useRef<number | null>(null);
   const currentUserId =
     cloudEnabled && cloudToken && activeOrgId && cloudUser ? cloudUser.id : 'user1';
+  const showTeamsNav =
+    cloudEnabled && Boolean(cloudToken && activeOrgId) && cloudMembers.length > 1;
   const zoomFactor = timelineZoom / 100;
   const hourWidth = Math.round(216 * zoomFactor);
   const hourGap = Math.max(12, Math.round(18 * zoomFactor));
@@ -143,15 +152,26 @@ export default function PersonalView() {
     if (!container || !hasTodayInRange) return null;
 
     const nowMinutes = getMinutesSinceMidnightInTimeZone(new Date(), activeTimeZone);
+    const timelineSlots = getTimelineTimeSlots({
+      slotMinutes,
+      workday,
+      nowMinutes,
+    });
+    const timelineStartMinutes = timeToMinutes(
+      timelineSlots[0] ?? minutesToTime(workday.startHour * 60)
+    );
+    const timelineDurationMinutes = timelineSlots.length * slotMinutes;
     const nowX = getNowAxisOffsetPx({
       nowMinutes,
       workday,
       hourWidth,
       hourGap,
+      timelineStartMinutes,
+      timelineDurationMinutes,
     });
     const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth);
     return Math.min(maxLeft, Math.max(0, nowX - container.clientWidth / 2));
-  }, [activeTimeZone, hasTodayInRange, hourGap, hourWidth, workday]);
+  }, [activeTimeZone, hasTodayInRange, hourGap, hourWidth, slotMinutes, workday]);
 
   const scrollToToday = useCallback(
     (behavior: ScrollBehavior): boolean => {
@@ -251,6 +271,15 @@ export default function PersonalView() {
     };
   }, []);
 
+  useEffect(
+    () => () => {
+      if (resistanceResetTimerRef.current !== null) {
+        window.clearTimeout(resistanceResetTimerRef.current);
+      }
+    },
+    []
+  );
+
   const adjustTimelineZoom = useCallback(
     (direction: 'in' | 'out') => {
       setPreference('timelineZoom', getNextTimelineZoom(timelineZoom, direction));
@@ -318,9 +347,81 @@ export default function PersonalView() {
     [adjustTimelineZoom]
   );
 
+  const applyTodaySnapResistance = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>, container: HTMLDivElement) => {
+      const deltaY = event.deltaY;
+      if (deltaY >= -0.1) return false;
+      if (Math.abs(deltaY) > 60) return false;
+
+      const todayTop = getTodayTargetTop();
+      if (todayTop === null) return false;
+      if (container.scrollTop <= 0) return false;
+
+      // Resist small upward nudges only near today's anchor.
+      const distanceFromToday = container.scrollTop - todayTop;
+      if (distanceFromToday > 4 || distanceFromToday < -96) return false;
+
+      const dampedDelta = deltaY * 0.22;
+      const nextTop = Math.max(0, container.scrollTop + dampedDelta);
+      if (Math.abs(nextTop - container.scrollTop) < 0.2) return false;
+
+      container.scrollTop = nextTop;
+      const resistance = Math.min(14, Math.max(4, Math.abs(deltaY) * 0.18));
+      setTodaySnapResistanceOffset(resistance);
+      if (resistanceResetTimerRef.current !== null) {
+        window.clearTimeout(resistanceResetTimerRef.current);
+      }
+      resistanceResetTimerRef.current = window.setTimeout(() => {
+        setTodaySnapResistanceOffset(0);
+      }, 140);
+      event.preventDefault();
+      return true;
+    },
+    [getTodayTargetTop]
+  );
+
+  const handleBoardWheelCapture = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      const container = boardScrollRef.current;
+      if (!container) return;
+
+      const target = event.target as HTMLElement | null;
+      const withinTimeAxis = target?.closest('[data-time-axis="1"]');
+      if (withinTimeAxis) return;
+
+      if (applyTodaySnapResistance(event, container)) {
+        return;
+      }
+
+      if (!event.shiftKey) return;
+
+      const delta = Math.abs(event.deltaY) >= 0.1 ? event.deltaY : event.deltaX;
+      if (Math.abs(delta) < 0.1) return;
+
+      const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      if (maxTop <= 0) return;
+
+      const nextTop = Math.min(maxTop, Math.max(0, container.scrollTop + delta));
+      if (Math.abs(nextTop - container.scrollTop) < 0.5) return;
+
+      container.scrollTop = nextTop;
+      event.preventDefault();
+    },
+    [applyTodaySnapResistance]
+  );
+
+  const nowMinutesForAxis = useMemo(
+    () => getMinutesSinceMidnightInTimeZone(new Date(), activeTimeZone),
+    [activeTimeZone]
+  );
   const timeSlots = useMemo(
-    () => getWorkdayTimeSlots(slotMinutes, workday),
-    [slotMinutes, workday]
+    () =>
+      getTimelineTimeSlots({
+        slotMinutes,
+        workday,
+        nowMinutes: nowMinutesForAxis,
+      }),
+    [slotMinutes, workday, nowMinutesForAxis]
   );
   const timeColumns = useMemo(() => {
     const columns: Array<{ key: string; time?: string; isHourStart?: boolean; isGap?: boolean }> =
@@ -342,7 +443,13 @@ export default function PersonalView() {
     () => timeColumns.map((col) => (col.isGap ? `${hourGap}px` : `${slotWidth}px`)).join(' '),
     [timeColumns, hourGap, slotWidth]
   );
-  const endLabel = minutesToTime(workday.endHour * 60);
+  const axisStartMinutes = useMemo(
+    () => timeToMinutes(timeSlots[0] ?? minutesToTime(workday.startHour * 60)),
+    [timeSlots, workday.startHour]
+  );
+  const axisDurationMinutes = timeSlots.length * slotMinutes;
+  const axisEndMinutes = axisStartMinutes + axisDurationMinutes;
+  const endLabel = axisEndMinutes >= 24 * 60 ? '24:00' : minutesToTime(axisEndMinutes);
   const startLabel = minutesToTime(workday.startHour * 60);
   const scrollToNow = useCallback(
     (behavior: ScrollBehavior = 'smooth'): boolean => {
@@ -355,6 +462,8 @@ export default function PersonalView() {
         workday,
         hourWidth,
         hourGap,
+        timelineStartMinutes: axisStartMinutes,
+        timelineDurationMinutes: axisDurationMinutes,
       });
       centerScrollLeft({
         container,
@@ -363,7 +472,7 @@ export default function PersonalView() {
       });
       return true;
     },
-    [activeTimeZone, hourGap, hourWidth, workday]
+    [activeTimeZone, axisDurationMinutes, axisStartMinutes, hourGap, hourWidth, workday]
   );
 
   useEffect(() => {
@@ -485,6 +594,7 @@ export default function PersonalView() {
       {layoutV1Enabled ? (
         <PlannerTopRail
           view="personal"
+          showTeamsNav={showTeamsNav}
           dateLabel={dateLabel}
           timelineZoom={timelineZoom}
           executionModeActive={executionModeActive}
@@ -497,7 +607,6 @@ export default function PersonalView() {
             <>
               <UndoRedoControls />
               <AddTaskDialog defaultAssignee={currentUserId} scheduleTasks={scheduleScopeTasks} />
-              <BlockTaskButton defaultAssignee={currentUserId} scheduleTasks={scheduleScopeTasks} />
             </>
           }
           rightControls={
@@ -518,7 +627,6 @@ export default function PersonalView() {
           <div className="pointer-events-auto flex items-center gap-2 ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
             <UndoRedoControls />
             <AddTaskDialog defaultAssignee={currentUserId} scheduleTasks={scheduleScopeTasks} />
-            <BlockTaskButton defaultAssignee={currentUserId} scheduleTasks={scheduleScopeTasks} />
             <div className="flex items-center gap-1 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-1 py-1">
               <button
                 type="button"
@@ -553,10 +661,7 @@ export default function PersonalView() {
         </div>
       )}
 
-      <DailyPlanningPanel
-        tasks={visibleTasks}
-        scheduleTasks={scheduleScopeTasks}
-      />
+      <DailyPlanningPanel tasks={visibleTasks} scheduleTasks={scheduleScopeTasks} />
       <ConflictResolutionBanner />
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -697,8 +802,19 @@ export default function PersonalView() {
             <div
               ref={boardScrollRef}
               className="board-scroll h-0 min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto"
+              onWheelCapture={handleBoardWheelCapture}
             >
-              <div className="min-w-max pb-24">
+              <div
+                className="min-w-max pb-24"
+                style={{
+                  transform:
+                    todaySnapResistanceOffset > 0
+                      ? `translateY(${todaySnapResistanceOffset}px)`
+                      : undefined,
+                  transition:
+                    todaySnapResistanceOffset > 0 ? 'transform 140ms ease-out' : undefined,
+                }}
+              >
                 <div
                   ref={stickyHeaderRef}
                   className="sticky top-0 z-10 flex border-b border-[color:var(--board-line)] bg-[var(--board-surface)]/92 backdrop-blur-sm"

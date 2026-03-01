@@ -238,7 +238,13 @@ function sanitizeStringArray(values?: string[]): string[] {
 }
 
 function normalizeTheme(theme: unknown): AppTheme {
-  if (theme === 'default' || theme === 'sugar-plum' || theme === 'mono' || theme === 'white')
+  if (
+    theme === 'default' ||
+    theme === 'sugar-plum' ||
+    theme === 'vibrant-pop' ||
+    theme === 'mono' ||
+    theme === 'white'
+  )
     return theme;
   return 'default';
 }

@@ -4,31 +4,25 @@ import {
   clearCloudSessionStorage,
   notifyAuthStorageUpdated,
   readCloudTutorialCompleted,
-  readCloudToken,
   readCloudUserId,
   readLocalTutorialCompleted,
   readPlannerMode,
   saveCloudSession,
   type PlannerMode,
   writeCloudTutorialCompleted,
+  writeCloudTutorialPending,
   writeLocalTutorialCompleted,
   writePlannerMode,
 } from '../services/authStorage';
 
 interface OnboardingContextValue {
   mode: PlannerMode | null;
-  cloudToken: string | null;
   cloudUserId: string | null;
   isCloudAuthenticated: boolean;
   hasCompletedTutorial: boolean;
   setMode: (mode: PlannerMode) => void;
   clearMode: () => void;
-  setCloudSession: (session: {
-    token: string;
-    refreshToken?: string | null;
-    orgId?: string | null;
-    userId?: string | null;
-  }) => void;
+  setCloudSession: (session: { orgId?: string | null; userId?: string | null }) => void;
   clearCloudSession: () => void;
   markTutorialCompleted: (userId?: string | null) => void;
 }
@@ -37,7 +31,6 @@ const OnboardingContext = createContext<OnboardingContextValue | undefined>(unde
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeState] = useState<PlannerMode | null>(() => readPlannerMode());
-  const [cloudToken, setCloudToken] = useState<string | null>(() => readCloudToken());
   const [cloudUserId, setCloudUserId] = useState<string | null>(() => readCloudUserId());
   const [hasCompletedTutorial, setHasCompletedTutorial] = useState<boolean>(() => {
     const initialMode = readPlannerMode();
@@ -54,7 +47,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     const nextMode = readPlannerMode();
     const nextCloudUserId = readCloudUserId();
     setModeState(nextMode);
-    setCloudToken(readCloudToken());
     setCloudUserId(nextCloudUserId);
     if (nextMode === 'local') {
       setHasCompletedTutorial(readLocalTutorialCompleted());
@@ -102,14 +94,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const setCloudSession = useCallback(
-    (session: {
-      token: string;
-      refreshToken?: string | null;
-      orgId?: string | null;
-      userId?: string | null;
-    }) => {
+    (session: { orgId?: string | null; userId?: string | null }) => {
       saveCloudSession(session);
-      setCloudToken(session.token);
       if (typeof session.userId === 'string') {
         setCloudUserId(session.userId);
         setHasCompletedTutorial(readCloudTutorialCompleted(session.userId));
@@ -122,7 +108,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   const clearCloudSession = useCallback(() => {
     clearCloudSessionStorage();
-    setCloudToken(null);
     setCloudUserId(null);
     setHasCompletedTutorial(false);
   }, []);
@@ -138,6 +123,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       const targetUserId = userId ?? cloudUserId;
       if (mode === 'cloud' && targetUserId) {
         writeCloudTutorialCompleted(targetUserId, true);
+        writeCloudTutorialPending(targetUserId, false);
         setHasCompletedTutorial(true);
       }
     },
@@ -147,9 +133,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const value = useMemo<OnboardingContextValue>(
     () => ({
       mode,
-      cloudToken,
       cloudUserId,
-      isCloudAuthenticated: mode === 'cloud' && Boolean(cloudToken),
+      isCloudAuthenticated: mode === 'cloud' && Boolean(cloudUserId || readCloudUserId()),
       hasCompletedTutorial,
       setMode,
       clearMode,
@@ -160,7 +145,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     [
       clearCloudSession,
       clearMode,
-      cloudToken,
       cloudUserId,
       hasCompletedTutorial,
       markTutorialCompleted,

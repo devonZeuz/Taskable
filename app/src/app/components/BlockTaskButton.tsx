@@ -23,6 +23,15 @@ const BLOCK_COLOR_BY_THEME: Record<AppTheme, string> = {
   mono: '#050506',
   white: '#111216',
   'sugar-plum': '#0f0f13',
+  'vibrant-pop': '#0d1020',
+};
+
+const BLOCK_BUTTON_ACCENT_BY_THEME: Record<AppTheme, string> = {
+  default: '#b7f700',
+  mono: '#f3f3f5',
+  white: '#1c1b1f',
+  'sugar-plum': '#f0c7dd',
+  'vibrant-pop': '#b7f700',
 };
 
 export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: BlockTaskButtonProps) {
@@ -35,6 +44,7 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
 
   const scheduleScopeTasks = scheduleTasks ?? tasks;
   const blockColor = BLOCK_COLOR_BY_THEME[theme];
+  const blockButtonAccent = BLOCK_BUTTON_ACCENT_BY_THEME[theme];
 
   const handleCreateBlock = () => {
     const now = new Date();
@@ -42,25 +52,30 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
     const durationMinutes = Math.max(slotMinutes, Math.round(60 / slotMinutes) * slotMinutes);
     const startMinute = workday.startHour * 60;
     const endMinute = workday.endHour * 60;
-    const maxStartMinute = Math.max(startMinute, endMinute - durationMinutes);
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const clampedCurrent = Math.max(startMinute, Math.min(maxStartMinute, currentMinutes));
-    const snappedStartMinute =
-      startMinute + Math.floor((clampedCurrent - startMinute) / slotMinutes) * slotMinutes;
-
-    const todaySlot = findNextAvailableSlotAfter(
+    const latestStartMinute = Math.max(startMinute, endMinute - durationMinutes);
+    const roundedNowMinutes =
+      Math.round((now.getHours() * 60 + now.getMinutes()) / slotMinutes) * slotMinutes;
+    const nowFitsWorkday =
+      roundedNowMinutes >= startMinute && roundedNowMinutes + durationMinutes <= endMinute;
+    const startSearchMinute = nowFitsWorkday ? roundedNowMinutes : startMinute;
+    const fallbackSlot = findNextAvailableSlotAfter(
       scheduleScopeTasks,
       todayKey,
       durationMinutes,
-      snappedStartMinute,
+      Math.min(latestStartMinute, startSearchMinute),
       undefined,
       workday
     );
-    const fallbackSlot =
-      todaySlot ??
-      findNextAvailableSlot(scheduleScopeTasks, todayKey, durationMinutes, undefined, workday);
 
-    if (!fallbackSlot) {
+    const beforeWorkday =
+      roundedNowMinutes < startMinute || roundedNowMinutes + durationMinutes > endMinute;
+    const nextWorkdaySlot =
+      beforeWorkday && !fallbackSlot
+        ? findNextAvailableSlot(scheduleScopeTasks, todayKey, durationMinutes, undefined, workday)
+        : null;
+    const selectedSlot = fallbackSlot ?? nextWorkdaySlot;
+
+    if (!selectedSlot) {
       toast.error('No room left in the current workday for a block.');
       return;
     }
@@ -71,7 +86,7 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
     addTask({
       title: 'BLOCK',
       description: '',
-      startDateTime: combineDayAndTime(todayKey, fallbackSlot.startTime).toISOString(),
+      startDateTime: combineDayAndTime(todayKey, selectedSlot.startTime).toISOString(),
       durationMinutes,
       color: blockColor,
       subtasks: [],
@@ -88,7 +103,7 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
       playCalendarSnapSound();
     }
 
-    toast.success(`Block placed at ${fallbackSlot.startTime}.`);
+    toast.success(`Block placed at ${selectedSlot.startTime}.`);
   };
 
   return (
@@ -97,9 +112,22 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
       data-testid="add-block-trigger"
       onClick={handleCreateBlock}
       variant="ghost"
-      className="planner-control h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-black/85 px-3 text-white hover:bg-black"
+      className="planner-control h-9 gap-2 rounded-[11px] border px-3.5 text-[12px] font-semibold tracking-[-0.01em] shadow-[0_8px_18px_rgba(0,0,0,0.34)] transition-all hover:brightness-110"
+      style={{
+        backgroundColor: '#0f1013',
+        borderColor: `color-mix(in srgb, ${blockButtonAccent} 24%, rgba(255,255,255,0.2))`,
+        color: blockButtonAccent,
+      }}
     >
-      <StopCircle className="size-4" />
+      <span
+        className="inline-flex size-4 items-center justify-center rounded-full border"
+        style={{
+          borderColor: `color-mix(in srgb, ${blockButtonAccent} 40%, transparent)`,
+          backgroundColor: `color-mix(in srgb, ${blockButtonAccent} 16%, transparent)`,
+        }}
+      >
+        <StopCircle className="size-3" />
+      </span>
       Block
     </Button>
   );

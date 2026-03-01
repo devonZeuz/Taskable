@@ -1,4 +1,4 @@
-import type { WorkdayHours } from './scheduling';
+import { minutesToTime, type WorkdayHours } from './scheduling';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -25,22 +25,50 @@ export function getNowAxisOffsetPx({
   workday,
   hourWidth,
   hourGap,
+  timelineStartMinutes,
+  timelineDurationMinutes,
 }: {
   nowMinutes: number;
   workday: WorkdayHours;
   hourWidth: number;
   hourGap: number;
+  timelineStartMinutes?: number;
+  timelineDurationMinutes?: number;
 }): number {
-  const workStartMinutes = workday.startHour * 60;
-  const workdayMinutes = Math.max(0, (workday.endHour - workday.startHour) * 60);
-  const hourSpanCount = Math.max(1, Math.ceil(workdayMinutes / 60));
-  const clampedOffsetMinutes = clamp(nowMinutes - workStartMinutes, 0, workdayMinutes);
+  const fallbackStartMinutes = workday.startHour * 60;
+  const fallbackDurationMinutes = Math.max(0, (workday.endHour - workday.startHour) * 60);
+  const axisStartMinutes = timelineStartMinutes ?? fallbackStartMinutes;
+  const axisDurationMinutes = Math.max(1, timelineDurationMinutes ?? fallbackDurationMinutes);
+  const hourSpanCount = Math.max(1, Math.ceil(axisDurationMinutes / 60));
+  const clampedOffsetMinutes = clamp(nowMinutes - axisStartMinutes, 0, axisDurationMinutes);
   const completedHours = Math.min(
     Math.floor(clampedOffsetMinutes / 60),
     Math.max(0, hourSpanCount - 1)
   );
   const offsetRatio = clampedOffsetMinutes / 60;
   return offsetRatio * hourWidth + completedHours * hourGap;
+}
+
+export function getTimelineTimeSlots({
+  slotMinutes,
+  workday,
+  nowMinutes,
+}: {
+  slotMinutes: number;
+  workday: WorkdayHours;
+  nowMinutes: number;
+}): string[] {
+  const normalizedSlotMinutes = Math.max(5, slotMinutes);
+  void workday;
+  void nowMinutes;
+  const axisStartMinutes = 0;
+  const axisEndMinutes = 24 * 60;
+
+  const slots: string[] = [];
+  for (let minutes = axisStartMinutes; minutes < axisEndMinutes; minutes += normalizedSlotMinutes) {
+    slots.push(minutesToTime(minutes));
+  }
+  return slots;
 }
 
 export function centerScrollLeft({

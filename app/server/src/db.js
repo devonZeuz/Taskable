@@ -37,6 +37,7 @@ db.exec(`
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
+    app_theme TEXT,
     email_verified_at TEXT,
     mfa_enabled INTEGER NOT NULL DEFAULT 0,
     mfa_secret TEXT,
@@ -244,6 +245,9 @@ if (!userColumns.some((column) => column.name === 'mfa_pending_secret')) {
 }
 if (!userColumns.some((column) => column.name === 'mfa_enrolled_at')) {
   db.exec('ALTER TABLE users ADD COLUMN mfa_enrolled_at TEXT;');
+}
+if (!userColumns.some((column) => column.name === 'app_theme')) {
+  db.exec('ALTER TABLE users ADD COLUMN app_theme TEXT;');
 }
 db.prepare(
   'UPDATE users SET mfa_enabled = 0 WHERE mfa_enabled IS NULL OR mfa_enabled NOT IN (0, 1)'

@@ -249,13 +249,19 @@ export async function getAdminConflicts(
 }
 
 export async function getAdminSyncHealth(token: string, params: AdminBaseParams = {}) {
-  return cloudRequest<AdminSyncHealthResponse>(`/api/v1/admin/sync-health${toQueryString(params)}`, {
-    token,
-  });
+  return cloudRequest<AdminSyncHealthResponse>(
+    `/api/v1/admin/sync-health${toQueryString(params)}`,
+    {
+      token,
+    }
+  );
 }
 
 export async function getAdminEmailHealth(token: string, params: AdminBaseParams = {}) {
-  return cloudRequest<AdminEmailHealthResponse>(`/api/v1/admin/email-health${toQueryString(params)}`, {
-    token,
-  });
+  return cloudRequest<AdminEmailHealthResponse>(
+    `/api/v1/admin/email-health${toQueryString(params)}`,
+    {
+      token,
+    }
+  );
 }

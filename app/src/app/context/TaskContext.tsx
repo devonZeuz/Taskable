@@ -99,7 +99,7 @@ interface TaskContextType {
 const TaskContext = createContext<TaskContextType | undefined>(undefined);
 const STORAGE_KEY = 'taskable-tasks';
 const STORAGE_VERSION = 4;
-const HISTORY_LIMIT = 120;
+const HISTORY_LIMIT = 50;
 const TASK_SYNC_CHANNEL_KEY = 'taskable:tasks-sync';
 
 interface LegacyTask {

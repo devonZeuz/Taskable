@@ -22,6 +22,10 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  ChevronsUpDown,
+  Search,
+  UserRound,
+  Check,
 } from 'lucide-react';
 import { useTasks, Task, SubTask } from '../context/TaskContext';
 import { useTeamMembers } from '../context/TeamMembersContext';
@@ -62,6 +66,11 @@ interface AddTaskDialogProps {
 }
 
 const DURATION_PRESET_MINUTES = [15, 30, 45, 60, 90, 120];
+const TASK_TYPE_HELP: Record<'quick' | 'large' | 'block', string> = {
+  quick: 'Quick: short focused task that fits in a standard slot.',
+  large: 'Complex: multi-step work with subtasks and deeper tracking.',
+  block: "Block: reserved time window where tasks can't be scheduled.",
+};
 
 export default function AddTaskDialog({
   defaultDay,
@@ -105,30 +114,44 @@ export default function AddTaskDialog({
   const shouldPlaySnapOnSubmit = playSnapOnSubmit ?? !editTask;
   const [open, setOpen] = useState(Boolean(editTask) || hideTrigger);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
 
   const initialDayKey = editTask?.startDateTime
     ? getDayKeyFromDateTime(editTask.startDateTime)
-    : defaultDay || getDayKey(today);
+    : defaultDay || getDayKey(todayStart);
+  const roundedNowMinutes = Math.max(
+    0,
+    Math.min(
+      24 * 60 - slotMinutes,
+      Math.round((now.getHours() * 60 + now.getMinutes()) / slotMinutes) * slotMinutes
+    )
+  );
+  const roundedNowTime = minutesToTime(roundedNowMinutes);
   const initialDurationMinutes = editTask?.durationMinutes || defaultTaskDurationMinutes;
+  const todayDayKey = getDayKey(todayStart);
+  const nowFitsWorkday =
+    roundedNowMinutes >= workday.startHour * 60 &&
+    roundedNowMinutes + initialDurationMinutes <= workday.endHour * 60;
   const initialStartTime = editTask?.startDateTime
     ? formatTime(new Date(editTask.startDateTime))
     : defaultTime ||
-      findNextAvailableSlot(
-        scheduleScopeTasks,
-        initialDayKey,
-        initialDurationMinutes,
-        undefined,
-        workday
-      )?.startTime ||
-      minutesToTime(workday.startHour * 60);
+      (initialDayKey === todayDayKey && nowFitsWorkday
+        ? roundedNowTime
+        : findNextAvailableSlot(
+            scheduleScopeTasks,
+            initialDayKey,
+            initialDurationMinutes,
+            undefined,
+            workday
+          )?.startTime || minutesToTime(workday.startHour * 60));
   const initialScheduleLater = editTask
     ? editTask.status === 'inbox' || !editTask.startDateTime
     : false;
 
   const [formData, setFormData] = useState({
-    title: editTask?.title || '',
+    title: editTask?.title || 'New Task',
     description: editTask?.description || '',
     day: initialDayKey,
     startTime: initialStartTime,
@@ -142,6 +165,8 @@ export default function AddTaskDialog({
 
   const [subtaskInput, setSubtaskInput] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(() => !layoutV1Enabled);
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
   const [taskTakeoverPending, setTaskTakeoverPending] = useState(false);
   const [dayTakeoverPending, setDayTakeoverPending] = useState(false);
   const taskLockHeartbeatRef = useRef<number | null>(null);
@@ -188,13 +213,56 @@ export default function AddTaskDialog({
     workday,
   ]);
 
-  const todayKey = getDayKey(today);
+  const todayKey = todayDayKey;
   const isSelectedToday = formData.day === todayKey;
 
   const cannotFit = false;
   const assignableMembers = members.filter(
     (member) => member.id !== 'all' && member.id !== 'unassigned'
   );
+  const meMemberId = useMemo(() => {
+    const explicitUserId = user?.id;
+    if (explicitUserId && explicitUserId !== 'all' && explicitUserId !== 'unassigned') {
+      return explicitUserId;
+    }
+    if (defaultAssignee && defaultAssignee !== 'all' && defaultAssignee !== 'unassigned') {
+      return defaultAssignee;
+    }
+    return null;
+  }, [defaultAssignee, user?.id]);
+  const assigneeOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; isMe: boolean }>();
+    assignableMembers.forEach((member) => {
+      map.set(member.id, {
+        id: member.id,
+        name: member.name,
+        isMe: Boolean(meMemberId && member.id === meMemberId),
+      });
+    });
+    if (meMemberId && !map.has(meMemberId)) {
+      map.set(meMemberId, {
+        id: meMemberId,
+        name: 'Me',
+        isMe: true,
+      });
+    }
+    return Array.from(map.values());
+  }, [assignableMembers, meMemberId]);
+  const filteredAssigneeOptions = useMemo(() => {
+    const query = assigneeQuery.trim().toLowerCase();
+    if (!query) return assigneeOptions;
+    return assigneeOptions.filter((option) => option.name.toLowerCase().includes(query));
+  }, [assigneeOptions, assigneeQuery]);
+  const selectedAssigneeOption = useMemo(
+    () => assigneeOptions.find((option) => option.id === formData.assignedTo) ?? null,
+    [assigneeOptions, formData.assignedTo]
+  );
+  const selectedAssigneeLabel =
+    formData.assignedTo === 'unassigned'
+      ? 'Unassigned'
+      : (selectedAssigneeOption?.name ?? 'Assignee');
+  const selectedAssigneeInitials =
+    formData.assignedTo === 'unassigned' ? '—' : getInitials(selectedAssigneeLabel);
   const taskLockByOther = useMemo(() => {
     if (!editTask) return null;
     const lock = presenceLocks.find(
@@ -253,6 +321,8 @@ export default function AddTaskDialog({
     }
     setOpen(nextOpen);
     if (!nextOpen) {
+      setAssigneePickerOpen(false);
+      setAssigneeQuery('');
       onClose?.();
     }
   };
@@ -370,9 +440,11 @@ export default function AddTaskDialog({
       ? (editTask?.timeZone ?? getLocalTimeZone())
       : editTask?.timeZone;
 
+    const normalizedTitle = formData.title.trim() || 'New Task';
+
     if (editTask) {
       updateTask(editTask.id, {
-        title: formData.title,
+        title: normalizedTitle,
         description: formData.description,
         startDateTime,
         durationMinutes: formData.durationMinutes,
@@ -388,7 +460,7 @@ export default function AddTaskDialog({
       });
     } else {
       addTask({
-        title: formData.title,
+        title: normalizedTitle,
         description: formData.description,
         startDateTime,
         durationMinutes: formData.durationMinutes,
@@ -460,11 +532,36 @@ export default function AddTaskDialog({
   };
 
   const setTaskType = (type: 'quick' | 'large' | 'block') => {
-    setFormData((prev) => ({
-      ...prev,
-      type,
-      subtasks: type === 'large' ? prev.subtasks : [],
-    }));
+    setFormData((prev) => {
+      let seededValues: Partial<typeof prev> = {};
+      if (type === 'block' && !editTask && !prev.scheduleLater) {
+        const now = new Date();
+        const todayKey = getDayKey(now);
+        const roundedNowMinutes =
+          Math.round((now.getHours() * 60 + now.getMinutes()) / slotMinutes) * slotMinutes;
+        const startMinute = workday.startHour * 60;
+        const latestStartMinute = Math.max(startMinute, workday.endHour * 60 - slotMinutes);
+        const seededStartMinutes = Math.min(
+          latestStartMinute,
+          Math.max(startMinute, roundedNowMinutes)
+        );
+        seededValues = {
+          day: todayKey,
+          startTime: minutesToTime(seededStartMinutes),
+          scheduleLater: false,
+        };
+      }
+
+      return {
+        ...prev,
+        ...seededValues,
+        type,
+        subtasks: type === 'large' ? prev.subtasks : [],
+      };
+    });
+    if (type === 'large' && layoutV1Enabled) {
+      setShowAdvanced(true);
+    }
     if (type !== 'large') {
       setSubtaskInput('');
     }
@@ -675,7 +772,6 @@ export default function AddTaskDialog({
               id="title"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              required
               placeholder="e.g., Germany Invoices"
             />
           </div>
@@ -729,67 +825,249 @@ export default function AddTaskDialog({
 
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="duration">Duration (minutes)</Label>
-              <div className="w-full ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-2.5 sm:inline-flex sm:w-fit sm:flex-col">
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="ui-hud-btn h-8 w-8 ui-v1-radius-sm p-0 text-base leading-none"
-                    onClick={() => stepDurationMinutes(-slotMinutes)}
-                    aria-label="Decrease duration"
-                  >
-                    -
-                  </Button>
-                  <div className="relative w-[170px] max-w-full sm:w-[210px]">
-                    <Input
-                      id="duration"
-                      type="number"
-                      min={slotMinutes}
-                      max="600"
-                      step={slotMinutes}
-                      value={formData.durationMinutes}
-                      onChange={(e) => {
-                        const value = Number(e.target.value);
-                        applyDurationMinutes(Number.isNaN(value) ? slotMinutes : value);
-                      }}
-                      required
-                      className="h-9 border-[color:var(--hud-border)] bg-[var(--hud-surface)] pr-11 text-[13px] font-semibold"
-                    />
-                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold tracking-[0.08em] text-[color:var(--hud-muted)]">
-                      MIN
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="ui-hud-btn h-8 w-8 ui-v1-radius-sm p-0 text-base leading-none"
-                    onClick={() => stepDurationMinutes(slotMinutes)}
-                    aria-label="Increase duration"
-                  >
-                    +
-                  </Button>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {DURATION_PRESET_MINUTES.map((minutes) => (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] sm:items-stretch">
+                <div className="w-full ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3 sm:flex sm:w-full sm:flex-col">
+                  <div className="flex items-center gap-2">
                     <Button
-                      key={minutes}
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className={`h-7 ui-v1-radius-sm px-2.5 text-[11px] ${
-                        formData.durationMinutes === minutes
-                          ? 'border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] text-[color:var(--hud-accent-soft-text)]'
-                          : 'ui-hud-btn'
-                      }`}
-                      onClick={() => applyDurationMinutes(minutes)}
+                      className="ui-hud-btn h-9 w-9 ui-v1-radius-sm p-0 text-base leading-none"
+                      onClick={() => stepDurationMinutes(-slotMinutes)}
+                      aria-label="Decrease duration"
                     >
-                      {minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}
+                      -
                     </Button>
-                  ))}
+                    <div className="relative min-w-0 flex-1">
+                      <Input
+                        id="duration"
+                        type="number"
+                        min={slotMinutes}
+                        max="600"
+                        step={slotMinutes}
+                        value={formData.durationMinutes}
+                        onChange={(e) => {
+                          const value = Number(e.target.value);
+                          applyDurationMinutes(Number.isNaN(value) ? slotMinutes : value);
+                        }}
+                        required
+                        className="h-10 border-[color:var(--hud-border)] bg-[var(--hud-surface)] pr-11 text-[14px] font-semibold"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold tracking-[0.08em] text-[color:var(--hud-muted)]">
+                        MIN
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="ui-hud-btn h-9 w-9 ui-v1-radius-sm p-0 text-base leading-none"
+                      onClick={() => stepDurationMinutes(slotMinutes)}
+                      aria-label="Increase duration"
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {DURATION_PRESET_MINUTES.map((minutes) => (
+                      <Button
+                        key={minutes}
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className={`h-8 ui-v1-radius-sm px-3 text-[12px] ${
+                          formData.durationMinutes === minutes
+                            ? 'border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] text-[color:var(--hud-accent-soft-text)]'
+                            : 'ui-hud-btn'
+                        }`}
+                        onClick={() => applyDurationMinutes(minutes)}
+                      >
+                        {minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+                  <Label className="text-[12px] font-semibold text-[color:var(--hud-muted)]">
+                    Task Type
+                  </Label>
+                  <div className="mt-2 inline-flex w-full rounded-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={`h-9 flex-1 text-[12px] ${
+                        formData.type === 'quick'
+                          ? 'border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] text-[color:var(--hud-accent-soft-text)]'
+                          : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
+                      }`}
+                      variant="ghost"
+                      onClick={() => setTaskType('quick')}
+                    >
+                      Quick
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={`h-9 flex-1 text-[12px] ${
+                        formData.type === 'large'
+                          ? 'border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] text-[color:var(--hud-accent-soft-text)]'
+                          : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
+                      }`}
+                      variant="ghost"
+                      onClick={() => setTaskType('large')}
+                    >
+                      Complex
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={`h-9 flex-1 text-[12px] ${
+                        formData.type === 'block'
+                          ? 'border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] text-[color:var(--hud-accent-soft-text)]'
+                          : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
+                      }`}
+                      variant="ghost"
+                      onClick={() => setTaskType('block')}
+                    >
+                      Block
+                    </Button>
+                  </div>
+                  <p
+                    data-testid="task-type-helper"
+                    className="mt-2 text-[11px] leading-snug text-[color:var(--hud-muted)]"
+                  >
+                    {TASK_TYPE_HELP[formData.type]}
+                  </p>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
+            <div className="space-y-1.5" data-testid="task-color-section-primary">
+              <Label>Color</Label>
+              <div className="flex flex-wrap gap-2">
+                {activeSwatches.map((swatch) => (
+                  <button
+                    key={swatch.value}
+                    type="button"
+                    data-testid="task-color-swatch"
+                    onClick={() => setFormData({ ...formData, color: swatch.value })}
+                    className={`size-7 rounded-full border-2 ui-v1-hover-grow ${
+                      formData.color === swatch.value
+                        ? 'ring-2 ring-[color:var(--hud-outline)] ring-offset-2 ring-offset-[color:var(--hud-surface-soft)]'
+                        : ''
+                    }`}
+                    style={{
+                      backgroundColor: swatch.value,
+                      borderColor:
+                        formData.color === swatch.value
+                          ? 'var(--hud-text)'
+                          : 'color-mix(in srgb, var(--hud-border) 85%, transparent)',
+                    }}
+                    title={swatch.name}
+                  >
+                    <span className="sr-only">{swatch.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Assignee</Label>
+              <Popover
+                open={assigneePickerOpen}
+                onOpenChange={(nextOpen) => {
+                  setAssigneePickerOpen(nextOpen);
+                  if (!nextOpen) setAssigneeQuery('');
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-10 w-full items-center justify-between ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[11px] font-semibold text-[color:var(--hud-text)]">
+                        {selectedAssigneeInitials}
+                      </span>
+                      <span className="truncate text-[12px] font-semibold text-[color:var(--hud-text)]">
+                        {selectedAssigneeLabel}
+                      </span>
+                    </span>
+                    <ChevronsUpDown className="size-4 text-[color:var(--hud-muted)]" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-2" align="start">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[color:var(--hud-muted)]" />
+                    <Input
+                      value={assigneeQuery}
+                      onChange={(event) => setAssigneeQuery(event.target.value)}
+                      placeholder="Search assignee..."
+                      className="h-8 border-[color:var(--hud-border)] bg-[var(--hud-surface)] pl-8 text-[12px]"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-52 space-y-1 overflow-y-auto">
+                    <button
+                      type="button"
+                      className="flex h-8 w-full items-center justify-between rounded-md px-2 text-[12px] font-medium text-[color:var(--hud-text)] hover:bg-[var(--hud-surface-soft)]"
+                      onClick={() => {
+                        setFormData((prev) => ({ ...prev, assignedTo: 'unassigned' }));
+                        setAssigneePickerOpen(false);
+                        setAssigneeQuery('');
+                      }}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="flex size-6 items-center justify-center rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[10px] font-semibold">
+                          —
+                        </span>
+                        Unassigned
+                      </span>
+                      {formData.assignedTo === 'unassigned' && (
+                        <Check className="size-3.5 text-[color:var(--hud-accent-bg)]" />
+                      )}
+                    </button>
+
+                    {filteredAssigneeOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className="flex h-8 w-full items-center justify-between rounded-md px-2 text-[12px] font-medium text-[color:var(--hud-text)] hover:bg-[var(--hud-surface-soft)]"
+                        onClick={() => {
+                          setFormData((prev) => ({ ...prev, assignedTo: option.id }));
+                          setAssigneePickerOpen(false);
+                          setAssigneeQuery('');
+                        }}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[10px] font-semibold">
+                            {option.isMe ? (
+                              <UserRound className="size-3.5" />
+                            ) : (
+                              getInitials(option.name)
+                            )}
+                          </span>
+                          <span className="truncate">
+                            {option.name}
+                            {option.isMe ? ' (Me)' : ''}
+                          </span>
+                        </span>
+                        {formData.assignedTo === option.id && (
+                          <Check className="size-3.5 text-[color:var(--hud-accent-bg)]" />
+                        )}
+                      </button>
+                    ))}
+
+                    {filteredAssigneeOptions.length === 0 && (
+                      <p className="px-2 py-1 text-[11px] text-[color:var(--hud-muted)]">
+                        No assignee matches.
+                      </p>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -857,6 +1135,54 @@ export default function AddTaskDialog({
 
           {(showAdvanced || !layoutV1Enabled) && (
             <div className="space-y-3 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+              {formData.type === 'large' && (
+                <div className="space-y-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2.5">
+                  <Label>Subtasks</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={subtaskInput}
+                      onChange={(e) => setSubtaskInput(e.target.value)}
+                      placeholder="Add a subtask..."
+                      className="h-9 border-[color:var(--hud-border)] bg-[var(--hud-surface)] text-[13px]"
+                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSubtask())}
+                    />
+                    <Button
+                      type="button"
+                      onClick={addSubtask}
+                      variant="outline"
+                      className="ui-hud-btn h-9 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  </div>
+
+                  {formData.subtasks.length > 0 && (
+                    <div className="mt-2 space-y-1.5">
+                      {formData.subtasks.map((subtask) => (
+                        <div
+                          key={subtask.id}
+                          className="flex items-center justify-start gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2"
+                        >
+                          <span className="size-3.5 rounded-full border border-[color:var(--hud-muted)]" />
+                          <span className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-[color:var(--hud-text)]">
+                            {subtask.title}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="ui-hud-btn h-7 w-7 shrink-0 ui-v1-radius-sm p-0"
+                            onClick={() => removeSubtask(subtask.id)}
+                          >
+                            <X className="size-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center justify-between ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2">
                 <div>
                   <p className="text-sm font-semibold">Schedule later</p>
@@ -881,98 +1207,25 @@ export default function AddTaskDialog({
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Color</Label>
-                <div className="flex flex-wrap gap-2">
-                  {activeSwatches.map((swatch) => (
-                    <button
-                      key={swatch.value}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, color: swatch.value })}
-                      className={`size-7 rounded-full border-2 ui-v1-hover-grow ${
-                        formData.color === swatch.value
-                          ? 'ring-2 ring-[color:var(--hud-outline)] ring-offset-2 ring-offset-[color:var(--hud-surface-soft)]'
-                          : ''
-                      }`}
-                      style={{
-                        backgroundColor: swatch.value,
-                        borderColor:
-                          formData.color === swatch.value
-                            ? 'var(--hud-text)'
-                            : 'color-mix(in srgb, var(--hud-border) 85%, transparent)',
-                      }}
-                      title={swatch.name}
-                    >
-                      <span className="sr-only">{swatch.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Task Type</Label>
-                <div className="inline-flex w-full rounded-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className={`h-8 flex-1 ${
-                      formData.type === 'quick'
-                        ? 'border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] text-[var(--hud-accent-soft-text)]'
-                        : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
-                    }`}
-                    variant="ghost"
-                    onClick={() => setTaskType('quick')}
-                  >
-                    Quick
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className={`h-8 flex-1 ${
-                      formData.type === 'large'
-                        ? 'border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] text-[var(--hud-accent-soft-text)]'
-                        : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
-                    }`}
-                    variant="ghost"
-                    onClick={() => setTaskType('large')}
-                  >
-                    Complex
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className={`h-8 flex-1 ${
-                      formData.type === 'block'
-                        ? 'border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] text-[var(--hud-accent-soft-text)]'
-                        : 'bg-transparent text-[color:var(--hud-muted)] hover:bg-transparent hover:text-[color:var(--hud-text)]'
-                    }`}
-                    variant="ghost"
-                    onClick={() => setTaskType('block')}
-                  >
-                    Block
-                  </Button>
-                </div>
-              </div>
-
               {formData.type !== 'block' &&
                 (taskSuggestions.suggestedWindow ||
                   taskSuggestions.suggestedDurationMinutes !== null ||
                   durationProfileSuggestion.suggestedDurationMinutes !== null) && (
-                  <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2.5">
+                  <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-3">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-[12px] font-semibold text-[color:var(--hud-text)]">
+                      <p className="text-[13px] font-semibold text-[color:var(--hud-text)]">
                         Smart helpers
                       </p>
-                      <span className="ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.09em] text-[color:var(--hud-accent-soft-text)]">
+                      <span className="ui-v1-radius-xs border border-[color:var(--hud-border)] bg-[color:var(--hud-accent-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-[color:var(--hud-accent-soft-text)]">
                         Smart
                       </span>
                     </div>
 
-                    <div className="mt-2 space-y-1.5 text-[11px] text-[color:var(--hud-muted)]">
+                    <div className="mt-2 space-y-2 text-[12px] text-[color:var(--hud-muted)]">
                       {taskSuggestions.suggestedWindow ? (
                         <div className="flex items-center justify-between gap-2">
                           <span>Suggested window</span>
-                          <span className="ui-v1-radius-xs ui-status-info px-2 py-0.5 font-semibold">
+                          <span className="ui-v1-radius-xs ui-status-info px-2 py-0.5 text-[11px] font-semibold">
                             {taskSuggestions.suggestedWindow.start} -{' '}
                             {taskSuggestions.suggestedWindow.end}
                           </span>
@@ -983,7 +1236,7 @@ export default function AddTaskDialog({
                         durationProfileSuggestion.suggestedDurationMinutes !== null) && (
                         <div className="flex items-center justify-between gap-2">
                           <span>Suggested duration</span>
-                          <span className="ui-v1-radius-xs ui-status-success px-2 py-0.5 font-semibold">
+                          <span className="ui-v1-radius-xs ui-status-success px-2 py-0.5 text-[11px] font-semibold">
                             {durationProfileSuggestion.suggestedDurationMinutes ??
                               taskSuggestions.suggestedDurationMinutes}{' '}
                             min
@@ -993,9 +1246,9 @@ export default function AddTaskDialog({
 
                       {taskSuggestions.correctionFactor !== null ? (
                         <div className="flex items-center justify-between gap-2">
-                          <span>Duration correction</span>
+                          <span>Execution trend</span>
                           <span
-                            className={`ui-v1-radius-xs px-2 py-0.5 font-semibold ${
+                            className={`ui-v1-radius-xs px-2 py-0.5 text-[11px] font-semibold ${
                               taskSuggestions.correctionTrend === 'overrun'
                                 ? 'ui-status-warning'
                                 : taskSuggestions.correctionTrend === 'underrun'
@@ -1004,35 +1257,13 @@ export default function AddTaskDialog({
                             }`}
                           >
                             {taskSuggestions.correctionTrend === 'overrun'
-                              ? `+${Math.round((taskSuggestions.correctionFactor - 1) * 100)}% overrun`
+                              ? `Usually +${Math.round((taskSuggestions.correctionFactor - 1) * 100)}%`
                               : taskSuggestions.correctionTrend === 'underrun'
-                                ? `${Math.round((taskSuggestions.correctionFactor - 1) * 100)}% underrun`
+                                ? `Usually ${Math.round((taskSuggestions.correctionFactor - 1) * 100)}%`
                                 : 'Balanced'}
                           </span>
                         </div>
                       ) : null}
-
-                      {(taskSuggestions.windowSampleCount > 0 ||
-                        taskSuggestions.durationSampleCount > 0 ||
-                        durationProfileSuggestion.sampleCount > 0 ||
-                        taskSuggestions.correctionSampleCount > 0) && (
-                        <p className="pt-0.5 text-[10px] text-[color:var(--hud-muted)]">
-                          History: window n={taskSuggestions.windowSampleCount}, duration n=
-                          {Math.max(
-                            durationProfileSuggestion.sampleCount,
-                            taskSuggestions.durationSampleCount
-                          )}
-                          {taskSuggestions.correctionFactor !== null
-                            ? `, correction n=${taskSuggestions.correctionSampleCount}`
-                            : ''}
-                        </p>
-                      )}
-                      {durationProfileSuggestion.suggestedDurationMinutes !== null &&
-                        durationProfileSuggestion.sampleCount >= 3 && (
-                          <p className="text-[10px] text-[color:var(--hud-muted)]">
-                            {`Based on your history (n=${durationProfileSuggestion.sampleCount})`}
-                          </p>
-                        )}
                     </div>
 
                     {(taskSuggestions.suggestedDurationMinutes !== null ||
@@ -1041,7 +1272,7 @@ export default function AddTaskDialog({
                         type="button"
                         size="sm"
                         variant="ghost"
-                        className="ui-hud-btn-soft mt-2 h-7 w-full ui-v1-radius-sm px-2.5 text-[11px]"
+                        className="ui-hud-btn-soft mt-2 h-8 w-full ui-v1-radius-sm px-3 text-[12px]"
                         onClick={() =>
                           setFormData((prev) => ({
                             ...prev,
@@ -1057,74 +1288,6 @@ export default function AddTaskDialog({
                     )}
                   </div>
                 )}
-
-              <div className="space-y-1.5">
-                <Label htmlFor="assignee">Assignee</Label>
-                <Select
-                  value={formData.assignedTo}
-                  onValueChange={(value) => setFormData({ ...formData, assignedTo: value })}
-                >
-                  <SelectTrigger id="assignee" className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {assignableMembers.map((member) => (
-                      <SelectItem key={member.id} value={member.id}>
-                        {member.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {formData.type === 'large' && (
-                <div className="space-y-2">
-                  <Label>Subtasks (Optional)</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={subtaskInput}
-                      onChange={(e) => setSubtaskInput(e.target.value)}
-                      placeholder="Add a subtask..."
-                      className="border-[color:var(--hud-border)] bg-[var(--hud-surface)]"
-                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSubtask())}
-                    />
-                    <Button
-                      type="button"
-                      onClick={addSubtask}
-                      variant="outline"
-                      className="ui-hud-btn h-9 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface)]"
-                    >
-                      <Plus className="size-4" />
-                    </Button>
-                  </div>
-
-                  {formData.subtasks.length > 0 && (
-                    <div className="mt-2 space-y-1.5">
-                      {formData.subtasks.map((subtask) => (
-                        <div
-                          key={subtask.id}
-                          className="flex items-center justify-start gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2"
-                        >
-                          <span className="size-3.5 rounded-full border border-[color:var(--hud-muted)]" />
-                          <span className="min-w-0 flex-1 truncate text-left text-[12px] font-semibold text-[color:var(--hud-text)]">
-                            {subtask.title}
-                          </span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="ui-hud-btn h-7 w-7 shrink-0 ui-v1-radius-sm p-0"
-                            onClick={() => removeSubtask(subtask.id)}
-                          >
-                            <X className="size-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
@@ -1157,6 +1320,13 @@ export default function AddTaskDialog({
 
 function formatTime(date: Date): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '??';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ''}${parts[parts.length - 1][0] ?? ''}`.toUpperCase();
 }
 
 function getLocalTimeZone(): string {

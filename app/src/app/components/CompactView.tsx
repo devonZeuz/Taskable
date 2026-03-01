@@ -33,14 +33,19 @@ const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
 });
 
+const VIEWPORT_DENSITY_SCALE = 0.8125;
 const NARROW_BREAKPOINT = 600;
-const DAY_LABEL_WIDTH = 108;
-const DEFAULT_PX_PER_MINUTE = 1.65;
-const LANE_HEIGHT = 72;
-const LANE_GAP = 8;
-const LANE_STAGGER_OFFSET = 12;
-const TASK_TOP_PADDING = 8;
-const TASK_BOTTOM_PADDING = 14;
+const DAY_LABEL_WIDTH = Math.round(108 * VIEWPORT_DENSITY_SCALE);
+const DEFAULT_PX_PER_MINUTE = 1.65 * VIEWPORT_DENSITY_SCALE;
+const LANE_HEIGHT = Math.round(72 * VIEWPORT_DENSITY_SCALE);
+const LANE_GAP = Math.round(8 * VIEWPORT_DENSITY_SCALE);
+const LANE_STAGGER_OFFSET = Math.round(12 * VIEWPORT_DENSITY_SCALE);
+const TASK_TOP_PADDING = Math.round(8 * VIEWPORT_DENSITY_SCALE);
+const TASK_BOTTOM_PADDING = Math.round(14 * VIEWPORT_DENSITY_SCALE);
+const TIMELINE_MIN_WIDTH = Math.round(420 * VIEWPORT_DENSITY_SCALE);
+const DAY_ROW_MIN_HEIGHT = Math.round(88 * VIEWPORT_DENSITY_SCALE);
+const TASK_CARD_MIN_WIDTH = Math.round(84 * VIEWPORT_DENSITY_SCALE);
+const TASK_HORIZONTAL_INSET = Math.round(8 * VIEWPORT_DENSITY_SCALE);
 
 interface CompactDay {
   key: string;
@@ -77,7 +82,7 @@ export default function CompactView() {
   const workStartMinutes = workday.startHour * 60;
   const workEndMinutes = workStartMinutes + workdayMinutes;
   const pxPerMinute = DEFAULT_PX_PER_MINUTE;
-  const timelineWidth = Math.max(420, Math.round(workdayMinutes * pxPerMinute));
+  const timelineWidth = Math.max(TIMELINE_MIN_WIDTH, Math.round(workdayMinutes * pxPerMinute));
   const hourMarkers = useMemo(() => {
     const markerCount = Math.floor(workdayMinutes / 60) + 1;
     return Array.from({ length: markerCount }, (_, index) => workStartMinutes + index * 60);
@@ -310,7 +315,10 @@ export default function CompactView() {
       >
         <div className="min-w-max pb-4">
           <div className="sticky top-0 z-10 flex h-[46px] border-b border-[color:var(--board-line)] bg-[var(--board-surface)]/92 backdrop-blur-sm">
-            <div className="w-[108px] border-r border-[color:var(--board-line)]" />
+            <div
+              className="border-r border-[color:var(--board-line)]"
+              style={{ width: `${DAY_LABEL_WIDTH}px` }}
+            />
             <div
               className="relative"
               style={{ width: `${timelineWidth}px` }}
@@ -341,12 +349,15 @@ export default function CompactView() {
           {days.map((day) => {
             const layout = dayLayouts.get(day.key) ?? { positioned: [], laneCount: 1 };
             const rowHeight = Math.max(
-              88,
-              layout.positioned.reduce((maxBottom, { task, laneIndex }) => {
-                const interval = getTaskInterval(task);
-                const taskTop = getTaskTop(interval.startMinutes, laneIndex);
-                return Math.max(maxBottom, taskTop + laneHeight + TASK_BOTTOM_PADDING);
-              }, TASK_TOP_PADDING + laneHeight + TASK_BOTTOM_PADDING)
+              DAY_ROW_MIN_HEIGHT,
+              layout.positioned.reduce(
+                (maxBottom, { task, laneIndex }) => {
+                  const interval = getTaskInterval(task);
+                  const taskTop = getTaskTop(interval.startMinutes, laneIndex);
+                  return Math.max(maxBottom, taskTop + laneHeight + TASK_BOTTOM_PADDING);
+                },
+                TASK_TOP_PADDING + laneHeight + TASK_BOTTOM_PADDING
+              )
             );
             const isTodayVisible = day.isToday;
             const now = new Date(nowTimestamp);
@@ -363,9 +374,10 @@ export default function CompactView() {
                 style={{ minHeight: `${rowHeight}px` }}
               >
                 <div
-                  className={`compact-token-day-label w-[108px] shrink-0 border-r border-[color:var(--board-line)] px-3 py-3 ${
+                  className={`compact-token-day-label shrink-0 border-r border-[color:var(--board-line)] px-3 py-3 ${
                     day.isToday ? 'bg-[var(--hud-surface-soft)]' : ''
                   }`}
+                  style={{ width: `${DAY_LABEL_WIDTH}px` }}
                 >
                   <p className="compact-token-day-title text-[21px] leading-[1.02] font-bold tracking-[-0.03em] text-[var(--board-text)]">
                     {getDayTitle(day.date)}
@@ -403,8 +415,9 @@ export default function CompactView() {
                     const interval = getTaskInterval(task);
                     const left = toPixelX(interval.startMinutes);
                     const width = Math.max(
-                      84,
-                      (interval.endMinutes - interval.startMinutes) * pxPerMinute - 8
+                      TASK_CARD_MIN_WIDTH,
+                      (interval.endMinutes - interval.startMinutes) * pxPerMinute -
+                        TASK_HORIZONTAL_INSET
                     );
                     const top = getTaskTop(interval.startMinutes, laneIndex);
                     return (

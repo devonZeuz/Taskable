@@ -1,6 +1,22 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { cloudRequest } from '../services/cloudApi';
+import {
+  AUTH_STORAGE_EVENT,
+  CLOUD_USER_ID_STORAGE_KEY,
+  PLANNER_MODE_STORAGE_KEY,
+  readCloudUserId,
+  readPlannerMode,
+} from '../services/authStorage';
 
-export type AppTheme = 'default' | 'sugar-plum' | 'mono' | 'white';
+export type AppTheme = 'default' | 'sugar-plum' | 'vibrant-pop' | 'mono' | 'white';
 
 interface AppThemeContextType {
   theme: AppTheme;
@@ -12,6 +28,7 @@ export const APP_THEMES: Array<{ value: AppTheme; label: string }> = [
   { value: 'white', label: 'Paper White' },
   { value: 'mono', label: 'True B/W' },
   { value: 'sugar-plum', label: 'Sugar Plum' },
+  { value: 'vibrant-pop', label: 'Vibrant Pop' },
 ];
 
 export const APP_THEME_TASK_SWATCHES: Record<AppTheme, Array<{ name: string; value: string }>> = {
@@ -46,24 +63,46 @@ export const APP_THEME_TASK_SWATCHES: Record<AppTheme, Array<{ name: string; val
     { name: 'White', value: '#ffffff' },
   ],
   'sugar-plum': [
-    { name: 'Hot Pink', value: '#e63f97' },
-    { name: 'Blush', value: '#ddb1c8' },
-    { name: 'Rose', value: '#d9318a' },
-    { name: 'Petal', value: '#e7c0d3' },
-    { name: 'Plum', value: '#b93d7d' },
-    { name: 'Berry', value: '#922a66' },
-    { name: 'Carnation', value: '#f27ab7' },
-    { name: 'Lilac Mist', value: '#f1d4e2' },
+    { name: 'Hot Sugar', value: '#ee3f9b' },
+    { name: 'Soft Plum', value: '#dcb3ca' },
+    { name: 'Rose Punch', value: '#df2f8f' },
+    { name: 'Petal Milk', value: '#e7bfd4' },
+    { name: 'Berry Jam', value: '#c22f80' },
+    { name: 'Blush Velvet', value: '#ce9fbe' },
+    { name: 'Candy Heart', value: '#f05eab' },
+    { name: 'Cloud Rose', value: '#edd1de' },
+  ],
+  'vibrant-pop': [
+    { name: 'Electric Blue', value: '#0136fe' },
+    { name: 'Acid Lime', value: '#b7f700' },
+    { name: 'Bloom Pink', value: '#f14292' },
+    { name: 'Hot Magenta', value: '#e63f97' },
+    { name: 'Plum Pulse', value: '#b93d7d' },
+    { name: 'Vivid Indigo', value: '#5d41ff' },
+    { name: 'Cobalt', value: '#2c6dff' },
+    { name: 'Neon Coral', value: '#ff4d8f' },
   ],
 };
 
 const STORAGE_KEY = 'taskable:app-theme';
 const DEFAULT_THEME: AppTheme = 'default';
+const CLOUD_THEME_SYNC_DEBOUNCE_MS = 140;
 
 const AppThemeContext = createContext<AppThemeContextType | undefined>(undefined);
 
+interface ThemeAuthSnapshot {
+  mode: 'local' | 'cloud' | null;
+  userId: string | null;
+}
+
 function isAppTheme(value: string | null): value is AppTheme {
-  return value === 'default' || value === 'sugar-plum' || value === 'mono' || value === 'white';
+  return (
+    value === 'default' ||
+    value === 'sugar-plum' ||
+    value === 'vibrant-pop' ||
+    value === 'mono' ||
+    value === 'white'
+  );
 }
 
 function loadTheme(): AppTheme {
@@ -76,8 +115,25 @@ function loadTheme(): AppTheme {
   return DEFAULT_THEME;
 }
 
+function readThemeAuthSnapshot(): ThemeAuthSnapshot {
+  return {
+    mode: readPlannerMode(),
+    userId: readCloudUserId(),
+  };
+}
+
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<AppTheme>(() => loadTheme());
+  const [authSnapshot, setAuthSnapshot] = useState<ThemeAuthSnapshot>(() =>
+    readThemeAuthSnapshot()
+  );
+  const [cloudThemeHydrated, setCloudThemeHydrated] = useState(false);
+  const lastCloudSyncedThemeRef = useRef<AppTheme | null>(null);
+  const currentThemeRef = useRef(theme);
+
+  useEffect(() => {
+    currentThemeRef.current = theme;
+  }, [theme]);
 
   useEffect(() => {
     try {
@@ -89,16 +145,116 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== STORAGE_KEY) return;
-      const nextTheme = event.newValue;
-      if (!isAppTheme(nextTheme)) return;
-      setThemeState((previous) => (previous === nextTheme ? previous : nextTheme));
+    const refreshAuthSnapshot = () => {
+      setAuthSnapshot((previous) => {
+        const next = readThemeAuthSnapshot();
+        if (previous.mode === next.mode && previous.userId === next.userId) {
+          return previous;
+        }
+        return next;
+      });
     };
 
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY) {
+        const nextTheme = event.newValue;
+        if (!isAppTheme(nextTheme)) return;
+        setThemeState((previous) => (previous === nextTheme ? previous : nextTheme));
+        return;
+      }
+
+      if (event.key === PLANNER_MODE_STORAGE_KEY || event.key === CLOUD_USER_ID_STORAGE_KEY) {
+        refreshAuthSnapshot();
+      }
+    };
+
+    window.addEventListener(AUTH_STORAGE_EVENT, refreshAuthSnapshot);
     window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(AUTH_STORAGE_EVENT, refreshAuthSnapshot);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
+
+  useEffect(() => {
+    if (authSnapshot.mode !== 'cloud' || !authSnapshot.userId) {
+      setCloudThemeHydrated(false);
+      lastCloudSyncedThemeRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    setCloudThemeHydrated(false);
+    void (async () => {
+      try {
+        const mePayload = await cloudRequest<{ user?: { appTheme?: string | null } }>(
+          '/api/v1/me',
+          {
+            timeoutMs: 8_000,
+          }
+        );
+        if (cancelled) return;
+
+        const serverTheme = isAppTheme(mePayload.user?.appTheme ?? null)
+          ? (mePayload.user?.appTheme as AppTheme)
+          : null;
+        if (serverTheme) {
+          lastCloudSyncedThemeRef.current = serverTheme;
+          setThemeState((previous) => (previous === serverTheme ? previous : serverTheme));
+        } else {
+          const fallbackTheme = currentThemeRef.current;
+          await cloudRequest('/api/v1/me/theme', {
+            method: 'PATCH',
+            body: { theme: fallbackTheme },
+            timeoutMs: 8_000,
+          });
+          if (cancelled) return;
+          lastCloudSyncedThemeRef.current = fallbackTheme;
+        }
+      } catch {
+        // Ignore cloud theme hydration failures and keep local theme.
+      } finally {
+        if (!cancelled) {
+          setCloudThemeHydrated(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authSnapshot.mode, authSnapshot.userId]);
+
+  useEffect(() => {
+    if (authSnapshot.mode !== 'cloud' || !authSnapshot.userId || !cloudThemeHydrated) {
+      return;
+    }
+    if (lastCloudSyncedThemeRef.current === theme) {
+      return;
+    }
+
+    let cancelled = false;
+    const syncTimer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await cloudRequest('/api/v1/me/theme', {
+            method: 'PATCH',
+            body: { theme },
+            timeoutMs: 8_000,
+          });
+          if (cancelled) return;
+          lastCloudSyncedThemeRef.current = theme;
+        } catch {
+          // Ignore theme sync write failures and retry on next change.
+        }
+      })();
+    }, CLOUD_THEME_SYNC_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(syncTimer);
+    };
+  }, [authSnapshot.mode, authSnapshot.userId, cloudThemeHydrated, theme]);
 
   const setTheme = useCallback((next: AppTheme) => {
     setThemeState(next);

@@ -20,8 +20,7 @@ export function createAuthRateLimiter({
     windowMs = defaultWindowMs,
   }) {
     return (req, res, next) => {
-      const email =
-        typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
+      const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
       const key = `${keyPrefix}:${req.ip}:${email}`;
       const result = consumeAuthRateLimit({
         key,

@@ -1,94 +1,93 @@
-# Taskable
+# Tareva (Taskable App Workspace)
 
-Taskable is a planner app with web + desktop surfaces and a Node/Express backend in `server/`.
+Execution-first planner with web, desktop, and cloud/local modes.
 
-## Local Development
+## Product Snapshot
 
-1. Use Node version in `.nvmrc`:
-   - `nvm use`
-2. Install web/desktop dependencies:
-   - `npm ci`
-3. Install backend dependencies:
-   - `npm --prefix server ci`
-4. Create env files:
-   - Copy `.env.example` to `.env`
-   - Set required values (`JWT_SECRET`, `VITE_API_URL`, etc.)
-5. Start backend:
-   - `npm run server:dev`
-6. Start frontend:
-   - `npm run dev`
-7. Optional desktop dev shell:
-   - `npm run desktop:dev`
+Tareva is built around one workflow: capture tasks, schedule realistically, then execute in real time.
 
-Local onboarding test note:
+Current strengths:
+- Execution-first task cards with clear scheduled/running/paused/done states
+- Deterministic stack-first overlap behavior on the timeline
+- Local-first workflow with optional cloud sync
+- Onboarding + first-session tutorial flow
+- Personal/Team/Compact planner surfaces
+- Web + Electron desktop targets from one codebase
 
-- In local dev on `localhost`, opening `/` defaults to onboarding (`/welcome`) so auth/onboarding flows are easy to retest.
-- If you want remembered-mode behavior at `/` during dev, use `/?persistMode=1`.
+## Workspace Layout
+
+- `src/`: frontend (React + TypeScript)
+- `server/`: backend API (Node + Express + SQLite)
+- `tests/`: unit, server, and Playwright E2E coverage
+
+## Quick Start (Local)
+
+```bash
+nvm use
+npm ci
+npm --prefix server ci
+cp .env.example .env
+cp server/.env.example server/.env
+npm run server:dev
+npm run dev
+```
+
+Optional desktop shell:
+
+```bash
+npm run desktop:dev
+```
+
+## Runbook Commands
+
+- Typecheck: `npm run typecheck`
+- Lint: `npm run lint`
+- Formatting check: `npm run format:check`
+- Unit/server tests: `npm run test`
+- E2E: `npm run test:e2e`
+- Cloud E2E: `npm run test:e2e:cloud`
 
 ## Deployment
 
-### Backend (Render example)
+### Frontend (Vercel)
 
-1. Create a new Render Web Service from this repo.
-2. Root directory: `app/server`.
-3. Build command: `npm ci`.
-4. Start command: `npm run start`.
-5. Set env vars from `.env.example` (server section), especially:
-   - `NODE_ENV=production`
-   - `JWT_SECRET` (strong, 32+ chars)
-   - `CORS_ORIGIN` (frontend URL)
-   - `BASE_URL` (frontend URL)
-6. Verify `GET /health` returns `200` with `{ "ok": true }`.
+- Root directory: `app`
+- Build command: `npm run build`
+- Output: `dist`
+- Required env: `VITE_API_URL`
 
-### Frontend (Vercel example)
+### Backend (Render)
 
-1. Import repo into Vercel.
-2. Root directory: `app`.
-3. Build command: `npm run build`.
-4. Output directory: `dist`.
-5. Set frontend env vars:
-   - `VITE_API_URL` to backend base URL
-   - `VITE_EDITION` (for target edition labeling)
-6. Deploy and validate login + task CRUD.
+- Root directory: `app/server`
+- Build command: `npm ci`
+- Start command: `npm run start`
+- Required env:
+  - `NODE_ENV=production`
+  - `JWT_SECRET`
+  - `BASE_URL`
+  - `CORS_ORIGIN`
+  - `METRICS_ACCESS_TOKEN`
 
-### Desktop Build
+Recommended persistence:
+- `TASKABLE_DB_PATH` pointing to persistent storage path (for durable data across restarts)
 
-- Unpacked desktop build: `npm run desktop:build`
-- Installer/distributables: `npm run desktop:dist`
+## Health and Ops
 
-## Environment Variables
+- Health endpoint: `GET /health`
+- Metrics endpoints:
+  - `GET /metrics/basic`
+  - `GET /metrics/slo`
+  - both require `x-metrics-token: <METRICS_ACCESS_TOKEN>`
 
-See `.env.example` for the full template.
+## Launch Readiness
 
-- Server:
-  - `NODE_ENV`, `JWT_SECRET`, `BASE_URL`, `CORS_ORIGIN`, `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `EMAIL_FROM`
-- Frontend:
-  - `VITE_API_URL`, `VITE_EDITION`
-- Optional:
-  - `MFA_ISSUER`
+- Auth flow works in cloud and local modes
+- Planner scroll, drag/drop, overlap, and execution controls are stable
+- Onboarding only triggers for first-session conditions
+- API v1 routes are used consistently (`/api/v1/...`)
+- CI gates pass before release
 
-Notes:
+## Canonical Internal Docs
 
-- In production, auth is always required.
-- Query-token auth is disabled unless explicitly enabled in non-production via `ALLOW_QUERY_TOKEN_AUTH=true`.
-
-## Health Check
-
-- Endpoint: `GET /health`
-- Healthy means:
-  - HTTP `200`
-  - JSON response body contains `{"ok": true}`
-- Use it for load balancer and deploy smoke checks.
-
-## Private Beta Checklist
-
-1. Set production env vars (no placeholder secrets).
-2. Confirm CORS only includes trusted frontend origins.
-3. Run quality gates locally before tagging:
-   - `npm run typecheck`
-   - `npm run lint`
-   - `npm run format:check`
-   - `npm run test`
-   - `npm run test:e2e`
-4. Deploy backend, then frontend, then desktop build if needed.
-5. Invite 3-10 testers and monitor errors, sync conflicts, and auth failures.
+- App map and architecture: `docs/TAREVA_APP_ATLAS.md`
+- Security hardening plan: `TAREVA_PROD_AUDIT_AND_CODEX_PLAN.md`

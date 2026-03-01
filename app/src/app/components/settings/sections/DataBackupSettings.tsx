@@ -95,9 +95,12 @@ export default function DataBackupSettings() {
     }
 
     try {
-      const payload = await cloudRequest<{ tasks: unknown[] }>(`/api/v1/orgs/${activeOrgId}/tasks`, {
-        token,
-      });
+      const payload = await cloudRequest<{ tasks: unknown[] }>(
+        `/api/v1/orgs/${activeOrgId}/tasks`,
+        {
+          token,
+        }
+      );
       const blob = new Blob(
         [
           JSON.stringify(

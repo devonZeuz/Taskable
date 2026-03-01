@@ -3,7 +3,13 @@ import { APP_THEME_TASK_SWATCHES, type AppTheme } from '../context/AppThemeConte
 const APP_THEME_STORAGE_KEY = 'taskable:app-theme';
 
 function isAppTheme(value: string | null): value is AppTheme {
-  return value === 'default' || value === 'white' || value === 'mono' || value === 'sugar-plum';
+  return (
+    value === 'default' ||
+    value === 'white' ||
+    value === 'mono' ||
+    value === 'sugar-plum' ||
+    value === 'vibrant-pop'
+  );
 }
 
 function getRandomIndex(length: number): number {

@@ -29,8 +29,6 @@ import { requestOpenConflictResolver } from '../services/settingsBridge';
 import {
   CLOUD_AUTO_SYNC_STORAGE_KEY as AUTO_SYNC_STORAGE_KEY,
   CLOUD_ORG_STORAGE_KEY as ORG_STORAGE_KEY,
-  CLOUD_REFRESH_TOKEN_STORAGE_KEY as REFRESH_TOKEN_STORAGE_KEY,
-  CLOUD_TOKEN_STORAGE_KEY as TOKEN_STORAGE_KEY,
   CLOUD_USER_ID_STORAGE_KEY as USER_ID_STORAGE_KEY,
   notifyAuthStorageUpdated,
   type PlannerMode,
@@ -201,22 +199,6 @@ function toPresenceKey(scope: PresenceScope, targetId: string) {
 
 const CloudSyncContext = createContext<CloudSyncContextType | undefined>(undefined);
 
-function loadStoredToken() {
-  try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function loadStoredRefreshToken() {
-  try {
-    return localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
 function loadStoredOrgId() {
   try {
     return localStorage.getItem(ORG_STORAGE_KEY);
@@ -232,6 +214,24 @@ function loadStoredAutoSync() {
   } catch {
     return true;
   }
+}
+
+function writeStoredCloudUserId(userId: string) {
+  try {
+    localStorage.setItem(USER_ID_STORAGE_KEY, userId);
+  } catch {
+    // ignore storage errors
+  }
+  notifyAuthStorageUpdated();
+}
+
+function clearStoredCloudUserId() {
+  try {
+    localStorage.removeItem(USER_ID_STORAGE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+  notifyAuthStorageUpdated();
 }
 
 function cloneTask(task: Task): Task {
@@ -431,8 +431,7 @@ export function CloudSyncProvider({
   mode: PlannerMode;
 }) {
   const { tasks, replaceTasks } = useTasks();
-  const [token, setToken] = useState<string | null>(() => loadStoredToken());
-  const [refreshToken, setRefreshToken] = useState<string | null>(() => loadStoredRefreshToken());
+  const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<CloudUser | null>(null);
   const [orgs, setOrgs] = useState<CloudOrg[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -463,7 +462,6 @@ export function CloudSyncProvider({
   const sessionIdRef = useRef<string>(buildSessionId());
   const claimedPresenceKeysRef = useRef<Set<string>>(new Set());
   const tokenRef = useRef<string | null>(token);
-  const refreshTokenRef = useRef<string | null>(refreshToken);
 
   const cloudModeEnabled = CLOUD_SYNC_ENABLED && mode === 'cloud';
   const enabled = cloudModeEnabled && Boolean(token);
@@ -500,33 +498,22 @@ export function CloudSyncProvider({
 
   const performTokenRefresh = useCallback(async () => {
     if (!cloudModeEnabled) return null;
-    const currentRefresh = refreshTokenRef.current;
-    if (!currentRefresh) return null;
 
     try {
       const payload = await cloudRequest<{
-        token?: string;
-        accessToken?: string;
-        refreshToken?: string;
         user?: CloudUser;
       }>('/api/v1/auth/refresh', {
         method: 'POST',
-        body: { refreshToken: currentRefresh },
       });
-      const nextAccessToken = payload.accessToken ?? payload.token ?? null;
-      if (!nextAccessToken) return null;
-      setToken(nextAccessToken);
-      if (payload.refreshToken) {
-        setRefreshToken(payload.refreshToken);
-      }
+      setToken('cookie-session');
       if (payload.user) {
         setUser(payload.user);
       }
-      return nextAccessToken;
+      return 'cookie-session';
     } catch {
       setToken(null);
-      setRefreshToken(null);
       setUser(null);
+      clearStoredCloudUserId();
       setOrgs([]);
       setMembers([]);
       setActiveOrgIdState(null);
@@ -548,11 +535,6 @@ export function CloudSyncProvider({
         headers?: Record<string, string>;
       } = {}
     ) => {
-      const activeToken = tokenRef.current;
-      if (!activeToken) {
-        throw new Error('Cloud token is missing.');
-      }
-
       const method = options.method ?? 'GET';
       const requestHeaders: Record<string, string> = {
         ...(options.headers ?? {}),
@@ -566,7 +548,6 @@ export function CloudSyncProvider({
           ...options,
           method,
           headers: requestHeaders,
-          token: activeToken,
         });
       } catch (error) {
         if (!(error instanceof CloudRequestError) || error.status !== 401) {
@@ -582,7 +563,6 @@ export function CloudSyncProvider({
           ...options,
           method,
           headers: requestHeaders,
-          token: refreshedToken,
         });
       }
     },
@@ -650,43 +630,12 @@ export function CloudSyncProvider({
 
   useEffect(() => {
     tokenRef.current = token;
-    try {
-      if (token) {
-        localStorage.setItem(TOKEN_STORAGE_KEY, token);
-      } else {
-        localStorage.removeItem(TOKEN_STORAGE_KEY);
-      }
-    } catch {
-      // ignore storage errors
-    }
     notifyAuthStorageUpdated();
   }, [token]);
 
   useEffect(() => {
-    refreshTokenRef.current = refreshToken;
-    try {
-      if (refreshToken) {
-        localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
-      } else {
-        localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-      }
-    } catch {
-      // ignore storage errors
-    }
-    notifyAuthStorageUpdated();
-  }, [refreshToken]);
-
-  useEffect(() => {
-    try {
-      if (user?.id) {
-        localStorage.setItem(USER_ID_STORAGE_KEY, user.id);
-      } else {
-        localStorage.removeItem(USER_ID_STORAGE_KEY);
-      }
-    } catch {
-      // ignore storage errors
-    }
-    notifyAuthStorageUpdated();
+    if (!user?.id) return;
+    writeStoredCloudUserId(user.id);
   }, [user?.id]);
 
   useEffect(() => {
@@ -736,30 +685,6 @@ export function CloudSyncProvider({
       if (event.storageArea !== localStorage) return;
       if (!event.key) return;
 
-      if (event.key === TOKEN_STORAGE_KEY) {
-        const nextToken = event.newValue;
-        setToken((previous) => (previous === nextToken ? previous : nextToken));
-        if (!nextToken) {
-          setUser(null);
-          setOrgs([]);
-          setMembers([]);
-          setActiveOrgIdState(null);
-          setPresenceLocks([]);
-          setConflicts([]);
-          hasPulledOrgRef.current = null;
-          lastTaskPullCursorRef.current = null;
-          serverTasksRef.current = [];
-          claimedPresenceKeysRef.current.clear();
-        }
-        return;
-      }
-
-      if (event.key === REFRESH_TOKEN_STORAGE_KEY) {
-        const nextRefresh = event.newValue;
-        setRefreshToken((previous) => (previous === nextRefresh ? previous : nextRefresh));
-        return;
-      }
-
       if (event.key === ORG_STORAGE_KEY) {
         const nextOrgId = event.newValue;
         setActiveOrgIdState((previous) => (previous === nextOrgId ? previous : nextOrgId));
@@ -778,16 +703,13 @@ export function CloudSyncProvider({
 
   const refreshSession = useCallback(async () => {
     if (!cloudModeEnabled) return;
-    if (!tokenRef.current) {
-      const refreshed = await performTokenRefresh();
-      if (!refreshed) return;
-    }
 
     setSyncing(true);
     clearSyncIssue();
 
     try {
       const mePayload = await requestWithToken<{ user: CloudUser; orgs: CloudOrg[] }>('/api/v1/me');
+      setToken('cookie-session');
       setUser(mePayload.user);
       setOrgs(mePayload.orgs);
 
@@ -797,8 +719,8 @@ export function CloudSyncProvider({
     } catch (err) {
       setSyncIssue('session.refresh', err, 'Cloud session refresh failed.');
       setToken(null);
-      setRefreshToken(null);
       setUser(null);
+      clearStoredCloudUserId();
       setOrgs([]);
       setMembers([]);
       setPresenceLocks([]);
@@ -810,14 +732,7 @@ export function CloudSyncProvider({
     } finally {
       setSyncing(false);
     }
-  }, [
-    cloudModeEnabled,
-    requestWithToken,
-    activeOrgId,
-    performTokenRefresh,
-    clearSyncIssue,
-    setSyncIssue,
-  ]);
+  }, [cloudModeEnabled, requestWithToken, activeOrgId, clearSyncIssue, setSyncIssue]);
 
   useEffect(() => {
     void refreshSession();
@@ -835,9 +750,6 @@ export function CloudSyncProvider({
       clearSyncIssue();
       try {
         const payload = await cloudRequest<{
-          token?: string;
-          accessToken?: string;
-          refreshToken?: string;
           user: CloudUser;
         }>('/api/v1/auth/login', {
           method: 'POST',
@@ -848,12 +760,7 @@ export function CloudSyncProvider({
             ...(options?.mfaCode ? { mfaCode: options.mfaCode } : {}),
           },
         });
-        const nextToken = payload.accessToken ?? payload.token ?? null;
-        if (!nextToken) {
-          throw new Error('Cloud login response did not include an access token.');
-        }
-        setToken(nextToken);
-        setRefreshToken(payload.refreshToken ?? null);
+        setToken('cookie-session');
         setUser(payload.user);
       } catch (err) {
         setSyncIssue('auth.login', err, 'Login failed.');
@@ -872,21 +779,13 @@ export function CloudSyncProvider({
       clearSyncIssue();
       try {
         const payload = await cloudRequest<{
-          token?: string;
-          accessToken?: string;
-          refreshToken?: string;
           user: CloudUser;
           defaultOrgId?: string;
         }>('/api/v1/auth/register', {
           method: 'POST',
           body: { name, email, password },
         });
-        const nextToken = payload.accessToken ?? payload.token ?? null;
-        if (!nextToken) {
-          throw new Error('Cloud register response did not include an access token.');
-        }
-        setToken(nextToken);
-        setRefreshToken(payload.refreshToken ?? null);
+        setToken('cookie-session');
         setUser(payload.user);
         if (payload.defaultOrgId) {
           setActiveOrgIdState(payload.defaultOrgId);
@@ -902,20 +801,15 @@ export function CloudSyncProvider({
   );
 
   const logout = useCallback(() => {
-    const currentRefresh = refreshTokenRef.current;
-    if (currentRefresh) {
-      void cloudRequest('/api/v1/auth/logout', {
-        method: 'POST',
-        body: { refreshToken: currentRefresh },
-      }).catch(() => undefined);
-    }
+    void cloudRequest('/api/v1/auth/logout', {
+      method: 'POST',
+    }).catch(() => undefined);
 
     if (enabled && tokenRef.current && activeOrgId && claimedPresenceKeysRef.current.size > 0) {
       void cloudRequest<{ released: boolean; locks: PresenceLock[] }>(
         `/api/v1/orgs/${activeOrgId}/presence/release-all`,
         {
           method: 'POST',
-          token: tokenRef.current,
           body: {
             sessionId: sessionIdRef.current,
           },
@@ -923,8 +817,8 @@ export function CloudSyncProvider({
       ).catch(() => undefined);
     }
     setToken(null);
-    setRefreshToken(null);
     setUser(null);
+    clearStoredCloudUserId();
     setOrgs([]);
     setMembers([]);
     setPresenceLocks([]);
@@ -1668,23 +1562,23 @@ export function CloudSyncProvider({
       clearSyncIssue();
       try {
         if (conflict.conflictingFields.includes('delete')) {
-        await requestWithToken(
-          `/api/v1/orgs/${activeOrgId}/tasks/${taskId}?ifVersion=${getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.delete')}`,
-          {
-            method: 'DELETE',
-          }
-        );
+          await requestWithToken(
+            `/api/v1/orgs/${activeOrgId}/tasks/${taskId}?ifVersion=${getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.delete')}`,
+            {
+              method: 'DELETE',
+            }
+          );
         } else {
           await requestWithToken<{ task: Task }>(`/api/v1/orgs/${activeOrgId}/tasks/${taskId}`, {
-              method: 'PUT',
-              body: {
-                ...toTaskPayload(conflict.localTask),
-                ifVersion: getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.update'),
-                conflictResolution: {
-                  strategy: 'keep_mine',
-                  fields: conflict.conflictingFields,
-                },
+            method: 'PUT',
+            body: {
+              ...toTaskPayload(conflict.localTask),
+              ifVersion: getTaskVersionForSync(conflict.serverTask, 'conflict.keep-mine.update'),
+              conflictResolution: {
+                strategy: 'keep_mine',
+                fields: conflict.conflictingFields,
               },
+            },
           });
         }
 

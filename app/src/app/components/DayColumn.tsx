@@ -45,11 +45,17 @@ interface HoverPreview {
   startMinutes: number;
   durationMinutes: number;
   laneIndex: number;
+  isComplexShape: boolean;
   canShove: boolean;
   shoveMoves: ShoveMove[];
 }
 
 const SHOVE_HOVER_MS = 550;
+const VIEWPORT_DENSITY_SCALE = 0.8125;
+
+function scaleDensityPx(value: number): number {
+  return Math.round(value * VIEWPORT_DENSITY_SCALE);
+}
 
 export default function DayColumn({
   day,
@@ -85,12 +91,17 @@ export default function DayColumn({
   const gapCount = Math.max(0, hourCount - 1);
   const gridWidth = timeSlots.length * slotWidth + gapCount * hourGap;
   const compactDensity = uiDensity === 'compact';
-  const laneMinHeight = compactDensity ? 154 : 178;
-  const laneStaggerOffset = compactDensity ? 16 : 18;
-  const laneGap = compactDensity ? 8 : 10;
-  const rowPadding = compactDensity ? 8 : 10;
-  const taskSpacing = compactDensity ? 16 : 18;
+  const laneMinHeight = compactDensity ? scaleDensityPx(154) : scaleDensityPx(178);
+  const complexCardExtraHeight = compactDensity ? scaleDensityPx(22) : scaleDensityPx(26);
+  const complexLaneHeight = laneMinHeight + complexCardExtraHeight;
+  const laneStaggerOffset = compactDensity ? scaleDensityPx(18) : scaleDensityPx(22);
+  const laneGap = compactDensity ? scaleDensityPx(8) : scaleDensityPx(10);
+  const rowPadding = compactDensity ? scaleDensityPx(8) : scaleDensityPx(10);
+  const taskSpacing = compactDensity ? scaleDensityPx(16) : scaleDensityPx(18);
   const taskInset = taskSpacing / 2;
+  const axisStartMinutes = timeToMinutes(timeSlots[0] ?? minutesToTime(workday.startHour * 60));
+  const axisDurationMinutes = timeSlots.length * slotMinutes;
+  const axisEndMinutes = axisStartMinutes + axisDurationMinutes;
   const workStartMinutes = workday.startHour * 60;
   const workdayMinutes = getWorkdayMinutes(workday);
   const workEndMinutes = workStartMinutes + workdayMinutes;
@@ -108,6 +119,10 @@ export default function DayColumn({
   const conflictedTaskIds = useMemo(
     () => new Set(conflicts.map((conflict) => conflict.taskId)),
     [conflicts]
+  );
+  const taskOrderIndexById = useMemo(
+    () => new Map(tasks.map((task, index) => [task.id, index])),
+    [tasks]
   );
   const dayLockedByOther = Boolean(dayPresenceLock && dayPresenceLock.userId !== user?.id);
   const canForceTakeover = activeOrgRole === 'owner' || activeOrgRole === 'admin';
@@ -193,7 +208,7 @@ export default function DayColumn({
       const maxSlotIndex = timeSlots.length;
       slotIndex = Math.min(Math.max(slotIndex, 0), maxSlotIndex);
 
-      return workStartMinutes + slotIndex * slotMinutes;
+      return axisStartMinutes + slotIndex * slotMinutes;
     },
     [
       gridWidth,
@@ -204,7 +219,7 @@ export default function DayColumn({
       slotsPerHour,
       slotMinutes,
       timeSlots.length,
-      workStartMinutes,
+      axisStartMinutes,
     ]
   );
 
@@ -212,7 +227,7 @@ export default function DayColumn({
     (startMinutes: number, durationMinutes: number) => {
       const maxSlotIndex = timeSlots.length;
       const startSlotIndex = Math.min(
-        Math.max(0, Math.round((startMinutes - workStartMinutes) / slotMinutes)),
+        Math.max(0, Math.round((startMinutes - axisStartMinutes) / slotMinutes)),
         Math.max(0, maxSlotIndex - 1)
       );
       const durationSlots = Math.max(1, Math.ceil(durationMinutes / slotMinutes));
@@ -230,39 +245,114 @@ export default function DayColumn({
       const visibleWidth = Math.max(slotWidth - 4, blockWidth - leftInset - rightInset);
       return { startCol, endCol, visibleWidth, leftInset, rightInset };
     },
-    [hourGap, slotMinutes, slotWidth, slotsPerHour, taskInset, timeSlots.length, workStartMinutes]
+    [axisStartMinutes, hourGap, slotMinutes, slotWidth, slotsPerHour, taskInset, timeSlots.length]
+  );
+
+  const getStaggerOffsetForStartMinutes = useCallback(
+    (startMinutes: number) => {
+      const startSlotIndex = Math.max(
+        0,
+        Math.round((startMinutes - axisStartMinutes) / slotMinutes)
+      );
+      const hourBandIndex = Math.floor(startSlotIndex / slotsPerHour);
+      return hourBandIndex % 2 === 1 ? laneStaggerOffset : 0;
+    },
+    [axisStartMinutes, laneStaggerOffset, slotMinutes, slotsPerHour]
   );
 
   const getPreviewLaneIndex = useCallback(
-    (startMinutes: number, durationMinutes: number, excludeTaskId?: string) => {
+    (
+      startMinutes: number,
+      durationMinutes: number,
+      draggedTaskId: string,
+      draggedIsComplex: boolean
+    ) => {
       const endMinutes = startMinutes + durationMinutes;
-      const overlappingIntervals = [...dayTasks]
-        .sort((a, b) => getTaskInterval(a).startMinutes - getTaskInterval(b).startMinutes)
-        .reduce<Array<{ startMinutes: number; endMinutes: number }>>((accumulator, task) => {
-          if (excludeTaskId && task.id === excludeTaskId) return accumulator;
-          const interval = getTaskInterval(task);
-          const overlaps = startMinutes < interval.endMinutes && endMinutes > interval.startMinutes;
-          if (overlaps) {
-            accumulator.push(interval);
-          }
-          return accumulator;
-        }, []);
+      const draggedOrderIndex = taskOrderIndexById.get(draggedTaskId) ?? Number.MAX_SAFE_INTEGER;
+      const hasDraggedInDay = dayTasks.some((task) => task.id === draggedTaskId);
 
-      const laneEnds: number[] = [];
-      overlappingIntervals.forEach((interval) => {
-        let laneIndex = laneEnds.findIndex((end) => interval.startMinutes >= end);
-        if (laneIndex === -1) {
-          laneIndex = laneEnds.length;
-          laneEnds.push(interval.endMinutes);
-        } else {
-          laneEnds[laneIndex] = interval.endMinutes;
+      const intervals = dayTasks
+        .map((task) => {
+          const interval =
+            task.id === draggedTaskId ? { startMinutes, endMinutes } : getTaskInterval(task);
+          return {
+            taskId: task.id,
+            startMinutes: interval.startMinutes,
+            endMinutes: interval.endMinutes,
+            orderIndex: taskOrderIndexById.get(task.id) ?? Number.MAX_SAFE_INTEGER,
+            isComplex: task.type === 'large',
+          };
+        })
+        .concat(
+          hasDraggedInDay
+            ? []
+            : [
+                {
+                  taskId: draggedTaskId,
+                  startMinutes,
+                  endMinutes,
+                  orderIndex: draggedOrderIndex,
+                  isComplex: draggedIsComplex,
+                },
+              ]
+        )
+        .sort((a, b) => {
+          if (a.startMinutes !== b.startMinutes) {
+            return a.startMinutes - b.startMinutes;
+          }
+          return a.orderIndex - b.orderIndex;
+        });
+
+      let currentGroup: typeof intervals = [];
+      let currentGroupEnd = Number.NEGATIVE_INFINITY;
+      let draggedLaneIndex = 0;
+
+      const flushGroup = () => {
+        if (currentGroup.length === 0) return;
+        const laneOrderedGroup = [...currentGroup].sort((a, b) => {
+          if (a.isComplex !== b.isComplex) {
+            return a.isComplex ? 1 : -1;
+          }
+          if (a.startMinutes !== b.startMinutes) {
+            return a.startMinutes - b.startMinutes;
+          }
+          return a.orderIndex - b.orderIndex;
+        });
+        const laneEnds: number[] = [];
+        laneOrderedGroup.forEach((interval) => {
+          let laneIndex = laneEnds.findIndex((laneEnd) => interval.startMinutes >= laneEnd);
+          if (laneIndex === -1) {
+            laneIndex = laneEnds.length;
+            laneEnds.push(interval.endMinutes);
+          } else {
+            laneEnds[laneIndex] = interval.endMinutes;
+          }
+          if (interval.taskId === draggedTaskId) {
+            draggedLaneIndex = laneIndex;
+          }
+        });
+      };
+
+      intervals.forEach((interval) => {
+        if (currentGroup.length === 0) {
+          currentGroup = [interval];
+          currentGroupEnd = interval.endMinutes;
+          return;
         }
+        if (interval.startMinutes < currentGroupEnd) {
+          currentGroup.push(interval);
+          currentGroupEnd = Math.max(currentGroupEnd, interval.endMinutes);
+          return;
+        }
+        flushGroup();
+        currentGroup = [interval];
+        currentGroupEnd = interval.endMinutes;
       });
 
-      const previewLane = laneEnds.findIndex((end) => startMinutes >= end);
-      return previewLane === -1 ? laneEnds.length : previewLane;
+      flushGroup();
+      return draggedLaneIndex;
     },
-    [dayTasks]
+    [dayTasks, taskOrderIndexById]
   );
 
   const overlapsBlockedWindow = useCallback(
@@ -324,9 +414,9 @@ export default function DayColumn({
           return;
         }
 
-        const rawIndex = Math.round((cursorMinutes - workStartMinutes) / slotMinutes);
+        const rawIndex = Math.round((cursorMinutes - axisStartMinutes) / slotMinutes);
         const startIndex = Math.min(Math.max(rawIndex, 0), maxStartIndex);
-        const startMinutes = workStartMinutes + startIndex * slotMinutes;
+        const startMinutes = axisStartMinutes + startIndex * slotMinutes;
         const blockedWindow =
           draggedTask.type !== 'block' &&
           overlapsBlockedWindow(startMinutes, durationMinutes, draggedTask.id);
@@ -371,7 +461,13 @@ export default function DayColumn({
         setHoverPreview({
           startMinutes,
           durationMinutes,
-          laneIndex: getPreviewLaneIndex(startMinutes, durationMinutes, draggedTask.id),
+          laneIndex: getPreviewLaneIndex(
+            startMinutes,
+            durationMinutes,
+            draggedTask.id,
+            draggedTask.type === 'large'
+          ),
+          isComplexShape: draggedTask.type === 'large' && draggedTask.subtasks.length > 0,
           canShove,
           shoveMoves: shovePlan ?? [],
         });
@@ -458,9 +554,9 @@ export default function DayColumn({
           return;
         }
 
-        const rawIndex = Math.round((cursorMinutes - workStartMinutes) / slotMinutes);
+        const rawIndex = Math.round((cursorMinutes - axisStartMinutes) / slotMinutes);
         const startIndex = Math.min(Math.max(rawIndex, 0), maxStartIndex);
-        const startMinutes = workStartMinutes + startIndex * slotMinutes;
+        const startMinutes = axisStartMinutes + startIndex * slotMinutes;
         const startTime = minutesToTime(startMinutes);
         const startDateTime = combineDayAndTime(day, startTime).toISOString();
         const blockedWindow =
@@ -580,7 +676,7 @@ export default function DayColumn({
       moveTask,
       moveTasksAtomic,
       workday,
-      workStartMinutes,
+      axisStartMinutes,
       workdayMinutes,
       conflictedTaskIds,
       isShiftPressed,
@@ -700,9 +796,9 @@ export default function DayColumn({
       const durationMinutes = Math.min(normalizedDefaultDuration, workdayMinutes);
       const durationSlots = Math.ceil(durationMinutes / slotMinutes);
       const maxStartIndex = Math.max(0, timeSlots.length - durationSlots);
-      const rawIndex = Math.round((cursorMinutes - workStartMinutes) / slotMinutes);
+      const rawIndex = Math.round((cursorMinutes - axisStartMinutes) / slotMinutes);
       const startIndex = Math.min(Math.max(rawIndex, 0), maxStartIndex);
-      const startMinutes = workStartMinutes + startIndex * slotMinutes;
+      const startMinutes = axisStartMinutes + startIndex * slotMinutes;
       const startDateTime = combineDayAndTime(day, minutesToTime(startMinutes)).toISOString();
       const assignedTo =
         defaultAssignee && defaultAssignee !== 'unassigned' && defaultAssignee !== 'all'
@@ -745,7 +841,7 @@ export default function DayColumn({
       soundEffectsEnabled,
       slotMinutes,
       timeSlots.length,
-      workStartMinutes,
+      axisStartMinutes,
       workdayMinutes,
     ]
   );
@@ -788,8 +884,24 @@ export default function DayColumn({
     overlapGroups.forEach((group) => {
       const laneEnds: number[] = [];
       const isStackedGroup = group.length > 1;
+      const laneOrderedGroup = [...group].sort((a, b) => {
+        const aIsComplex = a.type === 'large';
+        const bIsComplex = b.type === 'large';
+        if (aIsComplex !== bIsComplex) {
+          return aIsComplex ? 1 : -1;
+        }
+        const aStart = getTaskInterval(a).startMinutes;
+        const bStart = getTaskInterval(b).startMinutes;
+        if (aStart !== bStart) {
+          return aStart - bStart;
+        }
+        return (
+          (taskOrderIndexById.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+          (taskOrderIndexById.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+        );
+      });
 
-      group.forEach((task) => {
+      laneOrderedGroup.forEach((task) => {
         const interval = getTaskInterval(task);
         let laneIndex = laneEnds.findIndex((end) => interval.startMinutes >= end);
 
@@ -816,28 +928,78 @@ export default function DayColumn({
       laneCount: Math.max(1, laneCount),
       laneTrackHeight,
     };
-  }, [dayTasks, laneMinHeight, laneStaggerOffset]);
+  }, [dayTasks, laneMinHeight, laneStaggerOffset, taskOrderIndexById]);
 
   const nowIndicatorX = useMemo(() => {
     if (!isTodayColumn) return null;
 
     const now = new Date(nowTimestamp);
     const nowMinutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    if (nowMinutes < workStartMinutes || nowMinutes > workEndMinutes) return null;
+    if (nowMinutes < axisStartMinutes || nowMinutes > axisEndMinutes) return null;
 
-    const offsetMinutes = nowMinutes - workStartMinutes;
+    const offsetMinutes = nowMinutes - axisStartMinutes;
     const offsetRatio = offsetMinutes / 60;
     const completedHours = Math.min(Math.floor(offsetMinutes / 60), Math.max(0, hourSpanCount - 1));
     return offsetRatio * hourWidth + completedHours * hourGap;
   }, [
+    axisEndMinutes,
+    axisStartMinutes,
     hourGap,
     hourSpanCount,
     hourWidth,
     isTodayColumn,
     nowTimestamp,
+  ]);
+  const nowHourBand = useMemo(() => {
+    if (nowIndicatorX === null) return null;
+    const now = new Date(nowTimestamp);
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const hourStartMinutes = Math.floor(nowMinutes / 60) * 60;
+    const offsetMinutes = Math.max(0, hourStartMinutes - axisStartMinutes);
+    const completedHours = Math.floor(offsetMinutes / 60);
+    return {
+      left: (offsetMinutes / 60) * hourWidth + completedHours * hourGap,
+      width: hourWidth,
+    };
+  }, [axisStartMinutes, hourGap, hourWidth, nowIndicatorX, nowTimestamp]);
+  const workdayBand = useMemo(() => {
+    const clampedStartMinutes = Math.max(
+      axisStartMinutes,
+      Math.min(workStartMinutes, axisEndMinutes)
+    );
+    const clampedEndMinutes = Math.max(
+      clampedStartMinutes,
+      Math.min(workEndMinutes, axisEndMinutes)
+    );
+    if (clampedEndMinutes <= clampedStartMinutes) return null;
+    const toAxisX = (minutes: number) => {
+      const offsetMinutes = minutes - axisStartMinutes;
+      const completedHours = Math.min(
+        Math.floor(offsetMinutes / 60),
+        Math.max(0, hourSpanCount - 1)
+      );
+      return (offsetMinutes / 60) * hourWidth + completedHours * hourGap;
+    };
+    const left = toAxisX(clampedStartMinutes);
+    const right = toAxisX(clampedEndMinutes);
+    return {
+      left,
+      width: Math.max(slotWidth, right - left),
+    };
+  }, [
+    axisEndMinutes,
+    axisStartMinutes,
+    hourGap,
+    hourSpanCount,
+    hourWidth,
+    slotWidth,
     workEndMinutes,
     workStartMinutes,
   ]);
+  const nowLabel = useMemo(() => {
+    const now = new Date(nowTimestamp);
+    return minutesToTime(now.getHours() * 60 + now.getMinutes());
+  }, [nowTimestamp]);
 
   useEffect(() => {
     if (!deterministicDndMode || typeof window === 'undefined') {
@@ -1007,6 +1169,18 @@ export default function DayColumn({
         minHeight: `${laneLayout.laneTrackHeight + rowPadding * 2}px`,
       }}
     >
+      {workdayBand && (
+        <div
+          className="pointer-events-none absolute inset-y-0 z-[0]"
+          aria-hidden="true"
+          style={{
+            left: `${workdayBand.left}px`,
+            width: `${workdayBand.width}px`,
+            background: 'color-mix(in srgb, var(--hud-accent-soft) 9%, transparent)',
+          }}
+        />
+      )}
+
       {dayPresenceLock && (
         <div className="pointer-events-none absolute left-3 top-2 z-[7]">
           <div
@@ -1043,6 +1217,20 @@ export default function DayColumn({
         })}
       </div>
 
+      {nowHourBand && (
+        <div
+          className="pointer-events-none absolute inset-y-0 z-[1] border-x"
+          aria-hidden="true"
+          style={{
+            left: `${nowHourBand.left}px`,
+            width: `${nowHourBand.width}px`,
+            background: 'var(--timeline-now-glow)',
+            borderColor: 'color-mix(in srgb, var(--timeline-now) 32%, transparent)',
+            opacity: 0.24,
+          }}
+        />
+      )}
+
       {deterministicDndMode && (
         <div className="pointer-events-none absolute inset-0 z-[1]" aria-hidden="true">
           {slotMeta.map((slot) => {
@@ -1076,6 +1264,12 @@ export default function DayColumn({
               move.toStartMinutes,
               move.task.durationMinutes
             );
+            const staggerOffsetPx = getStaggerOffsetForStartMinutes(move.toStartMinutes);
+            const showComplexShape = move.task.type === 'large' && move.task.subtasks.length > 0;
+            const previewHeight = showComplexShape ? complexLaneHeight : laneMinHeight;
+            const previewClipPath = showComplexShape
+              ? buildComplexPreviewClipPath(visibleWidth, previewHeight)
+              : undefined;
             return (
               <div
                 key={`shove-preview-${move.task.id}-${index}`}
@@ -1083,12 +1277,14 @@ export default function DayColumn({
                 style={{
                   gridColumn: `${startCol} / ${endCol}`,
                   gridRow: `${(laneLayout.layoutById.get(move.task.id) ?? 0) + 1}`,
-                  minHeight: `${laneMinHeight}px`,
+                  minHeight: `${previewHeight}px`,
                   width: `${visibleWidth}px`,
                   justifySelf: 'start',
                   marginLeft: `${leftInset}px`,
                   marginRight: `${rightInset}px`,
+                  top: `${staggerOffsetPx}px`,
                   zIndex: 3,
+                  clipPath: previewClipPath,
                   borderColor: shovePreviewActive ? 'var(--hud-outline)' : 'var(--hud-border)',
                 }}
               />
@@ -1101,6 +1297,11 @@ export default function DayColumn({
               hoverPreview.startMinutes,
               hoverPreview.durationMinutes
             );
+            const staggerOffsetPx = getStaggerOffsetForStartMinutes(hoverPreview.startMinutes);
+            const previewHeight = hoverPreview.isComplexShape ? complexLaneHeight : laneMinHeight;
+            const previewClipPath = hoverPreview.isComplexShape
+              ? buildComplexPreviewClipPath(visibleWidth, previewHeight)
+              : undefined;
 
             return (
               <div
@@ -1108,12 +1309,14 @@ export default function DayColumn({
                 style={{
                   gridColumn: `${startCol} / ${endCol}`,
                   gridRow: `${hoverPreview.laneIndex + 1}`,
-                  minHeight: `${laneMinHeight}px`,
+                  minHeight: `${previewHeight}px`,
                   width: `${visibleWidth}px`,
                   justifySelf: 'start',
                   marginLeft: `${leftInset}px`,
                   marginRight: `${rightInset}px`,
+                  top: `${staggerOffsetPx}px`,
                   zIndex: 4,
+                  clipPath: previewClipPath,
                   borderColor: 'var(--hud-outline)',
                 }}
               />
@@ -1156,19 +1359,19 @@ export default function DayColumn({
             task.durationMinutes
           );
           const isBlockTask = task.type === 'block';
+          const isComplexTask = task.type === 'large';
           const blockSpanHeight =
             laneLayout.laneCount > 1
               ? laneLayout.laneCount * laneLayout.laneTrackHeight +
                 (laneLayout.laneCount - 1) * laneGap
               : laneMinHeight;
+          const taskCardHeight = isBlockTask
+            ? blockSpanHeight
+            : isComplexTask
+              ? complexLaneHeight
+              : laneMinHeight;
           const laneIndex = laneLayout.layoutById.get(task.id) ?? 0;
-          const startSlotIndex = Math.max(
-            0,
-            Math.round((interval.startMinutes - workStartMinutes) / slotMinutes)
-          );
-          const hourBandIndex = Math.floor(startSlotIndex / slotsPerHour);
-          const staggerOffsetPx =
-            (hourBandIndex + laneIndex) % 2 === 1 ? laneStaggerOffset : 0;
+          const staggerOffsetPx = getStaggerOffsetForStartMinutes(interval.startMinutes);
 
           return (
             <TaskCard
@@ -1176,7 +1379,7 @@ export default function DayColumn({
               task={task}
               onEdit={onEdit}
               onOpenQuickActions={onOpenQuickActions}
-              blockHeight={laneMinHeight}
+              blockHeight={isComplexTask ? complexLaneHeight : laneMinHeight}
               blockWidth={visibleWidth}
               slotMinutes={slotMinutes}
               getMinutesFromClientX={getMinutesFromClientX}
@@ -1185,8 +1388,8 @@ export default function DayColumn({
                 gridRow: isBlockTask
                   ? `1 / ${Math.max(2, laneLayout.laneCount + 1)}`
                   : `${laneIndex + 1}`,
-                height: isBlockTask ? `${blockSpanHeight}px` : `${laneMinHeight}px`,
-                minHeight: isBlockTask ? `${blockSpanHeight}px` : `${laneMinHeight}px`,
+                height: `${taskCardHeight}px`,
+                minHeight: `${taskCardHeight}px`,
                 marginLeft: `${leftInset}px`,
                 marginRight: `${rightInset}px`,
                 position: 'relative',
@@ -1221,21 +1424,60 @@ export default function DayColumn({
           aria-hidden="true"
         >
           <div
-            className="absolute inset-y-0 w-[2px] -translate-x-1/2"
+            className="absolute left-0 top-1 -translate-x-1/2 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
             style={{
-              background: 'var(--timeline-now)',
-              boxShadow: '0 0 0 1px var(--timeline-now-glow)',
+              color: 'var(--timeline-now)',
+              background: 'var(--board-surface)',
+              border: '1px solid color-mix(in srgb, var(--timeline-now) 40%, transparent)',
             }}
-          />
+          >
+            {nowLabel}
+          </div>
           <div
-            className="absolute top-2 size-2.5 -translate-x-1/2 rounded-full"
+            className="absolute inset-y-0 w-[2.5px] -translate-x-1/2"
             style={{
               background: 'var(--timeline-now)',
               boxShadow: '0 0 0 2px var(--timeline-now-glow)',
+            }}
+          />
+          <div
+            className="absolute top-4 size-3 -translate-x-1/2 rounded-full"
+            style={{
+              background: 'var(--timeline-now)',
+              boxShadow: '0 0 0 3px var(--timeline-now-glow)',
             }}
           />
         </div>
       )}
     </div>
   );
+}
+
+function buildComplexPreviewClipPath(width: number, height: number): string {
+  const safeWidth = Math.max(168, Math.round(width));
+  const safeHeight = Math.max(132, Math.round(height));
+  const outerRadius = clampNumber(Math.round(Math.min(safeWidth, safeHeight) * 0.11), 12, 22);
+  const grooveHeight = clampNumber(Math.round(safeHeight * 0.22), 26, 48);
+  const grooveWidth = clampNumber(Math.round(safeWidth * 0.44), 84, Math.max(112, safeWidth - 40));
+  const grooveLeft = Math.max(outerRadius + 18, safeWidth - grooveWidth);
+  const grooveRadius = clampNumber(Math.round(grooveHeight * 0.48), 10, 18);
+  const notchTopCurveX = grooveLeft + grooveRadius;
+  const notchBottomCurveX = Math.min(
+    safeWidth - outerRadius - 2,
+    grooveLeft + grooveRadius * 2 + 4
+  );
+  const rightUpperJoinY = grooveHeight + grooveRadius;
+
+  return `path('M ${outerRadius} 0 H ${grooveLeft} Q ${notchTopCurveX} 0 ${notchTopCurveX} ${grooveRadius} V ${Math.max(
+    grooveRadius + 2,
+    grooveHeight - grooveRadius
+  )} Q ${notchTopCurveX} ${grooveHeight} ${notchBottomCurveX} ${grooveHeight} H ${
+    safeWidth - outerRadius
+  } Q ${safeWidth} ${grooveHeight} ${safeWidth} ${rightUpperJoinY} V ${safeHeight - outerRadius} Q ${safeWidth} ${safeHeight} ${
+    safeWidth - outerRadius
+  } ${safeHeight} H ${outerRadius} Q 0 ${safeHeight} 0 ${safeHeight - outerRadius} V ${outerRadius} Q 0 0 ${outerRadius} 0 Z')`;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }

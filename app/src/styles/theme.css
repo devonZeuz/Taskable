@@ -1,7 +1,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-size: 16px;
+  --font-size: 13px;
   --background: #343438;
   --foreground: #f4f4f6;
   --card: #2f2f32;
@@ -78,14 +78,14 @@
   --timeline-now-glow: rgba(230, 63, 151, 0.42);
   --hour-start-highlight: #f5bad5;
   --hour-end-highlight: #ddb1c8;
-  --planner-day-row-height: 174px;
-  --planner-day-row-height-mobile: 134px;
-  --planner-day-label-title-size: 34px;
-  --planner-day-label-subtitle-size: 13px;
-  --planner-hour-label-size: 12px;
-  --planner-hour-end-label-size: 11px;
-  --planner-sidebar-width: 300px;
-  --planner-sidebar-collapsed-width: 72px;
+  --planner-day-row-height: calc(174px * 0.8125);
+  --planner-day-row-height-mobile: calc(134px * 0.8125);
+  --planner-day-label-title-size: calc(34px * 0.8125);
+  --planner-day-label-subtitle-size: calc(13px * 0.8125);
+  --planner-hour-label-size: calc(12px * 0.8125);
+  --planner-hour-end-label-size: calc(11px * 0.8125);
+  --planner-sidebar-width: calc(300px * 0.8125);
+  --planner-sidebar-collapsed-width: calc(72px * 0.8125);
 }
 
 :root[data-app-theme='default'] {
@@ -316,6 +316,112 @@
   --hour-end-highlight: #3d4250;
 }
 
+:root[data-app-theme='sugar-plum'] {
+  --primary: #ee3f9b;
+  --primary-foreground: #ffe6f2;
+  --secondary: #dcb3ca;
+  --secondary-foreground: #7f2a5d;
+  --ring: rgba(238, 63, 155, 0.4);
+  --chart-1: #ee3f9b;
+  --chart-2: #dcb3ca;
+  --chart-3: #df2f8f;
+  --chart-4: #ce9fbe;
+  --chart-5: #f05eab;
+  --sidebar-primary: #ee3f9b;
+  --sidebar-primary-foreground: #ffe6f2;
+  --card-hot: #ee3f9b;
+  --card-hot-text: #ffe8f3;
+  --card-soft: #dcb3ca;
+  --card-soft-text: #4c1f3c;
+  --hud-accent-bg: #ee3f9b;
+  --hud-accent-text: #ffe8f3;
+  --hud-accent-soft: #e7bfd4;
+  --hud-accent-soft-text: #7a2a59;
+  --hud-alert-bg: rgba(238, 63, 155, 0.2);
+  --hud-alert-border: rgba(238, 63, 155, 0.38);
+  --hud-alert-text: #ffe2f0;
+  --timeline-now: #ee3f9b;
+  --timeline-now-glow: rgba(238, 63, 155, 0.28);
+  --hour-start-highlight: #ee3f9b;
+  --hour-end-highlight: #e7bfd4;
+}
+
+:root[data-app-theme='vibrant-pop'] {
+  --background: #07080c;
+  --foreground: #f4f8ff;
+  --card: #0d1020;
+  --card-foreground: #f4f8ff;
+  --popover: #0d1020;
+  --popover-foreground: #f4f8ff;
+  --primary: #f14292;
+  --primary-foreground: #03165a;
+  --secondary: #b7f700;
+  --secondary-foreground: #001a77;
+  --muted: #12172c;
+  --muted-foreground: #9ba7cc;
+  --accent: #111936;
+  --accent-foreground: #dce5ff;
+  --destructive: #f45c85;
+  --destructive-foreground: #fff0f7;
+  --border: rgba(118, 142, 236, 0.28);
+  --input: #121a34;
+  --input-background: #121a34;
+  --switch-background: #41548d;
+  --ring: rgba(241, 66, 146, 0.45);
+  --chart-1: #0136fe;
+  --chart-2: #b7f700;
+  --chart-3: #f14292;
+  --chart-4: #5d41ff;
+  --chart-5: #ff4d8f;
+  --sidebar: #090d1a;
+  --sidebar-foreground: #edf3ff;
+  --sidebar-primary: #f14292;
+  --sidebar-primary-foreground: #041448;
+  --sidebar-accent: #101933;
+  --sidebar-accent-foreground: #edf3ff;
+  --sidebar-border: rgba(118, 142, 236, 0.22);
+  --sidebar-ring: rgba(241, 66, 146, 0.42);
+  --board-bg: #080b14;
+  --board-surface: #0d1020;
+  --board-line: rgba(158, 179, 255, 0.2);
+  --board-text: #f4f8ff;
+  --board-muted: rgba(224, 233, 255, 0.66);
+  --board-gradient: radial-gradient(130% 120% at 50% -10%, #131a35 0%, #080b14 56%, #05070d 100%);
+  --card-hot: #f14292;
+  --card-hot-text: #041448;
+  --card-soft: #b7f700;
+  --card-soft-text: #001a77;
+  --hud-surface: rgba(13, 16, 32, 0.9);
+  --hud-border: rgba(158, 179, 255, 0.22);
+  --hud-text: rgba(244, 248, 255, 0.93);
+  --hud-muted: rgba(190, 204, 243, 0.68);
+  --hud-accent-bg: #f14292;
+  --hud-accent-text: #041448;
+  --hud-accent-soft: #b7f700;
+  --hud-accent-soft-text: #001a77;
+  --hud-chip-neutral-bg: #151d38;
+  --hud-chip-neutral-text: rgba(232, 240, 255, 0.88);
+  --hud-outline: rgba(183, 247, 0, 0.52);
+  --hud-surface-strong: rgba(10, 13, 26, 0.95);
+  --hud-surface-soft: rgba(18, 25, 49, 0.82);
+  --hud-shadow: 0 18px 38px rgba(0, 0, 0, 0.42);
+  --hud-success-bg: rgba(183, 247, 0, 0.16);
+  --hud-success-text: #b7f700;
+  --hud-warning-bg: rgba(241, 66, 146, 0.22);
+  --hud-warning-text: #ffd0e6;
+  --hud-danger-bg: rgba(255, 88, 134, 0.24);
+  --hud-danger-text: #ffc0d8;
+  --hud-info-bg: rgba(44, 109, 255, 0.24);
+  --hud-info-text: #cedcff;
+  --hud-alert-bg: rgba(241, 66, 146, 0.25);
+  --hud-alert-border: rgba(241, 66, 146, 0.5);
+  --hud-alert-text: #ffe6f4;
+  --timeline-now: #f14292;
+  --timeline-now-glow: rgba(241, 66, 146, 0.34);
+  --hour-start-highlight: #f14292;
+  --hour-end-highlight: #b7f700;
+}
+
 .dark {
   --background: #343438;
   --foreground: #f4f4f6;
@@ -354,23 +460,23 @@
 }
 
 [data-testid='app-shell'][data-density='comfortable'] {
-  --ui-font-scale: 1;
-  --ui-space-scale: 1;
-  --ui-control-scale: 1;
+  --ui-font-scale: 0.8125;
+  --ui-space-scale: 0.8125;
+  --ui-control-scale: 0.8125;
 }
 
 [data-testid='app-shell'][data-density='compact'] {
-  --ui-font-scale: 0.9;
-  --ui-space-scale: 0.85;
-  --ui-control-scale: 0.9;
-  --planner-day-row-height: 154px;
-  --planner-day-row-height-mobile: 118px;
-  --planner-day-label-title-size: 30px;
-  --planner-day-label-subtitle-size: 12px;
-  --planner-hour-label-size: 11px;
-  --planner-hour-end-label-size: 10px;
-  --planner-sidebar-width: 270px;
-  --planner-sidebar-collapsed-width: 64px;
+  --ui-font-scale: 0.73125;
+  --ui-space-scale: 0.690625;
+  --ui-control-scale: 0.73125;
+  --planner-day-row-height: calc(154px * 0.8125);
+  --planner-day-row-height-mobile: calc(118px * 0.8125);
+  --planner-day-label-title-size: calc(30px * 0.8125);
+  --planner-day-label-subtitle-size: calc(12px * 0.8125);
+  --planner-hour-label-size: calc(11px * 0.8125);
+  --planner-hour-end-label-size: calc(10px * 0.8125);
+  --planner-sidebar-width: calc(270px * 0.8125);
+  --planner-sidebar-collapsed-width: calc(64px * 0.8125);
 }
 
 @theme inline {
@@ -607,6 +713,36 @@
   .desktop-no-drag {
     -webkit-app-region: no-drag;
     app-region: no-drag;
+  }
+
+  .planner-task-card {
+    transition:
+      box-shadow 120ms ease,
+      transform 120ms ease;
+  }
+
+  @keyframes planner-strip-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.58;
+    }
+  }
+
+  .planner-task-accent-strip-running {
+    animation: planner-strip-pulse 2s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .planner-task-accent-strip-running {
+      animation: none;
+    }
+  }
+
+  :root[data-reduce-motion='true'] .planner-task-accent-strip-running {
+    animation: none;
   }
 
   [data-density='compact'] .planner-density-scope {

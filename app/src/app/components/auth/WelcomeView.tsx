@@ -2,7 +2,11 @@ import { useMemo } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { useOnboarding } from '../../context/OnboardingContext';
-import { writeLocalTutorialCompleted } from '../../services/authStorage';
+import {
+  readLocalWorkdaySetupCompleted,
+  writeLocalTutorialCompleted,
+  writeLocalWorkdaySetupPending,
+} from '../../services/authStorage';
 import { Button } from '../ui/button';
 
 const PREVIEW_HOURS = [
@@ -105,6 +109,7 @@ type CardTone = {
   mutedText: string;
   chipBackground: string;
   chipText: string;
+  accent: string;
 };
 
 function getPreviewCardTop(card: PreviewCard): number {
@@ -122,6 +127,7 @@ function getPreviewCardTone(tone: PreviewCard['tone']): CardTone {
       mutedText: 'var(--hud-muted)',
       chipBackground: 'color-mix(in srgb, var(--hud-surface-soft) 92%, transparent)',
       chipText: 'var(--hud-text)',
+      accent: 'var(--hud-accent-bg)',
     };
   }
 
@@ -133,6 +139,7 @@ function getPreviewCardTone(tone: PreviewCard['tone']): CardTone {
       mutedText: 'color-mix(in srgb, var(--hud-muted) 86%, transparent)',
       chipBackground: 'color-mix(in srgb, var(--hud-surface-soft) 78%, transparent)',
       chipText: 'color-mix(in srgb, var(--hud-muted) 88%, transparent)',
+      accent: 'color-mix(in srgb, var(--hud-muted) 75%, transparent)',
     };
   }
 
@@ -144,6 +151,7 @@ function getPreviewCardTone(tone: PreviewCard['tone']): CardTone {
       mutedText: 'var(--hud-muted)',
       chipBackground: 'color-mix(in srgb, var(--hud-surface-soft) 92%, transparent)',
       chipText: 'var(--hud-text)',
+      accent: 'var(--hud-accent-soft)',
     };
   }
 
@@ -154,6 +162,7 @@ function getPreviewCardTone(tone: PreviewCard['tone']): CardTone {
     mutedText: 'var(--hud-muted)',
     chipBackground: 'color-mix(in srgb, var(--hud-surface-soft) 90%, transparent)',
     chipText: 'var(--hud-text)',
+    accent: 'color-mix(in srgb, var(--hud-accent-bg) 72%, transparent)',
   };
 }
 
@@ -172,8 +181,12 @@ function PreviewTaskCard({ card }: { card: PreviewCard }) {
         color: tone.text,
       }}
     >
+      <span
+        className="pointer-events-none absolute inset-y-[6px] left-[6px] w-[4px] rounded-full"
+        style={{ backgroundColor: tone.accent }}
+      />
       <div className="pr-2">
-        <div className="max-h-[42px] overflow-hidden break-words text-[17px] font-semibold leading-[1.12]">
+        <div className="max-h-[42px] overflow-hidden break-words pr-1 text-[16px] font-semibold leading-[1.12] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
           {card.title}
         </div>
         {card.checklist ? (
@@ -188,7 +201,7 @@ function PreviewTaskCard({ card }: { card: PreviewCard }) {
       </div>
       <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2">
         <div
-          className="min-w-0 truncate text-[12px] font-semibold"
+          className="min-w-0 truncate text-[11px] font-semibold"
           style={{ color: tone.mutedText }}
         >
           {card.time}
@@ -229,6 +242,9 @@ export default function WelcomeView() {
 
   const continueLocally = () => {
     writeLocalTutorialCompleted(false);
+    if (!readLocalWorkdaySetupCompleted()) {
+      writeLocalWorkdaySetupPending(true);
+    }
     setMode('local');
     navigate(returnTo, { replace: true });
   };
@@ -291,12 +307,12 @@ export default function WelcomeView() {
           feedback.
         </p>
 
-        <div className="mb-10 mt-8 flex flex-wrap items-center justify-center gap-2.5 md:flex-nowrap">
+        <div className="mb-10 mt-8 flex flex-wrap items-center justify-center gap-3 md:flex-nowrap">
           <button
             type="button"
             data-testid="welcome-continue-local"
             onClick={continueLocally}
-            className="h-12 whitespace-nowrap rounded-[16px] border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-5 text-[13.5px] font-semibold text-[var(--hud-accent-text)] shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition duration-200 hover:border-[color:var(--hud-accent-soft)] hover:brightness-110 hover:shadow-[0_12px_26px_color-mix(in_srgb,var(--hud-accent-bg)_35%,transparent)]"
+            className="h-[52px] whitespace-nowrap rounded-[16px] border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-6 text-[14px] font-bold text-[var(--hud-accent-text)] shadow-[0_8px_22px_rgba(0,0,0,0.22)] transition duration-200 hover:border-[color:var(--hud-accent-soft)] hover:brightness-110 hover:shadow-[0_12px_26px_color-mix(in_srgb,var(--hud-accent-bg)_35%,transparent)]"
           >
             Start locally
           </button>
@@ -304,7 +320,7 @@ export default function WelcomeView() {
             type="button"
             data-testid="welcome-sign-in"
             onClick={openLogin}
-            className="h-12 whitespace-nowrap rounded-[16px] border border-white/15 bg-white/10 px-5 text-[13.5px] font-semibold text-[var(--hud-text)] transition duration-200 hover:border-[color:var(--hud-accent-soft)] hover:bg-[color:color-mix(in_srgb,var(--hud-accent-bg)_20%,transparent)] hover:text-[var(--hud-accent-text)]"
+            className="h-[52px] whitespace-nowrap rounded-[16px] border border-white/15 bg-white/10 px-6 text-[14px] font-semibold text-[var(--hud-text)] transition duration-200 hover:border-[color:var(--hud-accent-soft)] hover:bg-[color:color-mix(in_srgb,var(--hud-accent-bg)_20%,transparent)] hover:text-[var(--hud-accent-text)]"
           >
             Sign in
           </button>
@@ -312,7 +328,7 @@ export default function WelcomeView() {
             type="button"
             data-testid="welcome-sign-up"
             onClick={openSignup}
-            className="h-12 whitespace-nowrap rounded-[16px] border border-white/10 bg-white/5 px-5 text-[13.5px] font-medium text-[var(--hud-muted)] transition duration-200 hover:border-[color:var(--hud-accent-soft)] hover:bg-[color:color-mix(in_srgb,var(--hud-accent-soft)_18%,transparent)] hover:text-[var(--hud-text)]"
+            className="h-[52px] whitespace-nowrap rounded-[16px] border border-white/10 bg-white/5 px-6 text-[14px] font-medium text-[var(--hud-muted)] transition duration-200 hover:border-[color:var(--hud-accent-soft)] hover:bg-[color:color-mix(in_srgb,var(--hud-accent-soft)_18%,transparent)] hover:text-[var(--hud-text)]"
           >
             Create account
           </button>

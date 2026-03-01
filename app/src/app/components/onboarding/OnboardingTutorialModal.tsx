@@ -44,7 +44,8 @@ const BASE_SLIDES: TutorialSlide[] = [
   {
     id: 'execute',
     title: 'Run tasks in real time',
-    description: 'Start, pause, and complete tasks from cards while execution progress stays visible.',
+    description:
+      'Start, pause, and complete tasks from cards while execution progress stays visible.',
     scene: 'execute',
   },
   {

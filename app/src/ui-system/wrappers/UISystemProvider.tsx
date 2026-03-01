@@ -35,7 +35,10 @@ export function UISystemProvider({ children }: PropsWithChildren) {
     <UiSystemContext.Provider value={value}>
       <div
         data-ui-system={enabled ? 'v1' : 'legacy'}
-        className={cn('ui-system-scope min-h-full', enabled && UI_SYSTEM_ROOT_CLASS)}
+        className={cn(
+          'ui-system-scope h-dvh min-h-0 flex flex-col',
+          enabled && UI_SYSTEM_ROOT_CLASS
+        )}
       >
         {children}
       </div>

@@ -44,10 +44,7 @@ interface DailyPlanningPanelProps {
 
 const PANEL_COLLAPSED_STORAGE_KEY = 'taskable:daily-planning-collapsed';
 
-export default function DailyPlanningPanel({
-  tasks,
-  scheduleTasks,
-}: DailyPlanningPanelProps) {
+export default function DailyPlanningPanel({ tasks, scheduleTasks }: DailyPlanningPanelProps) {
   const { moveTask, completeTask, setTaskFocus, startTask, pauseTask, updateTask } = useTasks();
   const { workday } = useWorkday();
   const { enabled, permission, incomingLeadTimes, setEnabled, requestPermission } =
@@ -207,6 +204,19 @@ export default function DailyPlanningPanel({
     [todayTasks]
   );
   const workdayCapacityMinutes = useMemo(() => getWorkdayMinutes(workday), [workday]);
+  const scheduledTodayMinutes = useMemo(
+    () =>
+      todayTasks.reduce((total, task) => {
+        if (task.type === 'block') return total;
+        return total + Math.max(0, task.durationMinutes);
+      }, 0),
+    [todayTasks]
+  );
+  const completionRatio =
+    reviewSummary.total > 0 ? reviewSummary.completed / reviewSummary.total : 0;
+  const capacityPlannedRatio =
+    workdayCapacityMinutes > 0 ? Math.min(1.5, scheduledTodayMinutes / workdayCapacityMinutes) : 0;
+  const capacityPlannedPercent = Math.round(capacityPlannedRatio * 100);
   const overloadMinutes = Math.max(0, plannedTodayMinutes - workdayCapacityMinutes);
   const weeklyExecutionInsights = useMemo(
     () => buildWeeklyExecutionInsights(tasks, nowTimestamp, slotMinutes),
@@ -652,11 +662,12 @@ export default function DailyPlanningPanel({
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="text-sm font-bold text-[color:var(--hud-text)] md:text-base">
+            <h3 className="text-base font-bold text-[color:var(--hud-text)] md:text-lg">
               Daily Planning
             </h3>
-            <p className="text-[11px] text-[color:var(--hud-muted)] md:text-xs">
-              Inbox -&gt; Schedule -&gt; Today Focus -&gt; Review
+            <p className="mt-0.5 text-[12px] font-semibold text-[color:var(--hud-text)] md:text-[13px]">
+              Today - {reviewSummary.completed} of {reviewSummary.total} done ·{' '}
+              {capacityPlannedPercent}% capacity planned
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -701,6 +712,18 @@ export default function DailyPlanningPanel({
               </Button>
             )}
           </div>
+        </div>
+        <div className="mt-2 h-[4px] w-full overflow-hidden rounded-full bg-[color:var(--hud-border)]/65">
+          <div
+            className="h-full rounded-full transition-[width] duration-300 ease-out"
+            style={{
+              width:
+                reviewSummary.total === 0
+                  ? '0%'
+                  : `${Math.max(8, Math.round(completionRatio * 100))}%`,
+              background: 'var(--hud-accent-bg)',
+            }}
+          />
         </div>
 
         {layoutV1Enabled && isCollapsed && (
