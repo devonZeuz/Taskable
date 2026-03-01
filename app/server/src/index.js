@@ -534,7 +534,8 @@ function parseCookies(req) {
 
 function setAuthCookies(res, { accessToken, refreshToken }) {
   const secureFlag = isProduction ? '; Secure' : '';
-  const commonCookieFlags = `; Path=/; HttpOnly; SameSite=Lax${secureFlag}`;
+  const sameSite = isProduction ? 'None' : 'Lax';
+  const commonCookieFlags = `; Path=/; HttpOnly; SameSite=${sameSite}${secureFlag}`;
   const refreshMaxAgeSeconds = REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60;
   res.setHeader('Set-Cookie', [
     `${ACCESS_TOKEN_COOKIE_NAME}=${encodeURIComponent(accessToken)}; Max-Age=${15 * 60}${commonCookieFlags}`,
@@ -544,7 +545,8 @@ function setAuthCookies(res, { accessToken, refreshToken }) {
 
 function clearAuthCookies(res) {
   const secureFlag = isProduction ? '; Secure' : '';
-  const commonCookieFlags = `; Path=/; HttpOnly; SameSite=Lax${secureFlag}`;
+  const sameSite = isProduction ? 'None' : 'Lax';
+  const commonCookieFlags = `; Path=/; HttpOnly; SameSite=${sameSite}${secureFlag}`;
   res.setHeader('Set-Cookie', [
     `${ACCESS_TOKEN_COOKIE_NAME}=; Max-Age=0${commonCookieFlags}`,
     `${REFRESH_TOKEN_COOKIE_NAME}=; Max-Age=0${commonCookieFlags}`,

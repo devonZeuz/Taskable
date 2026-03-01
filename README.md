@@ -91,9 +91,3 @@ Recommended persistence:
 - Onboarding only triggers for first-session conditions
 - API v1 routes are used consistently (`/api/v1/...`)
 - CI gates pass before release
-
-## Canonical Internal Docs
-
-- App map and architecture: `app/docs/TAREVA_APP_ATLAS.md`
-- Security hardening plan: `app/TAREVA_PROD_AUDIT_AND_CODEX_PLAN.md`
-- UI/UX execution contract: `TAREVA_UI_UX_MASTER_AUDIT.md`
