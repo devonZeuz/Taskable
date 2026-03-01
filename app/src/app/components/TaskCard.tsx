@@ -14,7 +14,6 @@ import {
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { useTeamMembers } from '../context/TeamMembersContext';
-import { useWorkday } from '../context/WorkdayContext';
 import { useCloudSync } from '../context/CloudSyncContext';
 import { useUserPreferences } from '../context/UserPreferencesContext';
 import { type AppTheme, useAppTheme } from '../context/AppThemeContext';
@@ -95,7 +94,6 @@ export default function TaskCard({
     openConflictResolver,
     claimPresenceLock,
   } = useCloudSync();
-  const { workday } = useWorkday();
   const {
     preferences: { uiDensity },
   } = useUserPreferences();
@@ -409,21 +407,21 @@ export default function TaskCard({
       const cursorMinutesRaw = getMinutesFromClientX(event.clientX, 'raw');
       if (cursorMinutesRaw === null) return;
 
-      const workStart = workday.startHour * 60;
-      const workEnd = workday.endHour * 60;
+      const dayStart = 0;
+      const dayEnd = 24 * 60;
       const originalStart = resizing.startMinutes;
       const originalEnd = resizing.startMinutes + resizing.durationMinutes;
       const snapMode = resizing.direction === 'end' ? 'ceil' : 'floor';
       const adjustedMinutes = cursorMinutesRaw + resizing.dragOffsetMinutes;
-      const snappedMinutes = snapMinutes(adjustedMinutes, snapMode, slotMinutes, workStart);
+      const snappedMinutes = snapMinutes(adjustedMinutes, snapMode, slotMinutes, dayStart);
       let nextStart = originalStart;
       let nextDuration = resizing.durationMinutes;
 
       if (resizing.direction === 'start') {
-        nextStart = Math.min(Math.max(snappedMinutes, workStart), originalEnd - slotMinutes);
+        nextStart = Math.min(Math.max(snappedMinutes, dayStart), originalEnd - slotMinutes);
         nextDuration = originalEnd - nextStart;
       } else {
-        const nextEnd = Math.min(Math.max(snappedMinutes, originalStart + slotMinutes), workEnd);
+        const nextEnd = Math.min(Math.max(snappedMinutes, originalStart + slotMinutes), dayEnd);
         nextDuration = nextEnd - originalStart;
       }
 
@@ -477,8 +475,6 @@ export default function TaskCard({
     task.startDateTime,
     task.durationMinutes,
     updateTask,
-    workday.startHour,
-    workday.endHour,
   ]);
 
   const handleResizeStart =

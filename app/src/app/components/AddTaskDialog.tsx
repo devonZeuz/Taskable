@@ -744,7 +744,7 @@ export default function AddTaskDialog({
               <AlertCircle className="size-4" />
               <AlertDescription className="text-[color:var(--hud-warning-text)]">
                 Outside your workday ({minutesToTime(workday.startHour * 60)} -{' '}
-                {minutesToTime(workday.endHour * 60)}). This is allowed.
+                {minutesToTime(workday.endHour * 60)}).
               </AlertDescription>
             </Alert>
           )}
