@@ -266,6 +266,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
           </div>
           <button
             type="button"
+            data-testid="task-quick-actions-close"
             onClick={onClose}
             className="flex h-6.5 w-6.5 items-center justify-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-85 transition-colors hover:brightness-105 hover:opacity-100"
             title="Close actions"

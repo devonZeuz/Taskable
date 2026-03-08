@@ -109,3 +109,157 @@ test('overlapping tasks occupy independent vertical lanes and keep resize/drop i
   expect(dndResult.moved).toBe(true);
   await expect(stackA).toContainText('12:30');
 });
+
+test('staggered placement alternates card vertical offset across adjacent hours', async ({
+  page,
+}) => {
+  await bootstrapLocalMode(page, { seedDemoTasks: false });
+  await page.addInitScript(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const buildTask = (id: string, title: string, hour: number) => {
+      const start = new Date(today);
+      start.setHours(hour, 0, 0, 0);
+      return {
+        id,
+        title,
+        description: '',
+        startDateTime: start.toISOString(),
+        durationMinutes: 60,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
+        completed: false,
+        color: '#c9ced8',
+        subtasks: [],
+        type: 'quick',
+        assignedTo: 'user1',
+        status: 'scheduled',
+        focus: false,
+        executionStatus: 'idle',
+        actualMinutes: 0,
+      };
+    };
+
+    window.localStorage.setItem(
+      'taskable-tasks',
+      JSON.stringify({
+        schemaVersion: 4,
+        tasks: [
+          buildTask('stagger-a', 'Stagger A', 9),
+          buildTask('stagger-b', 'Stagger B', 10),
+          buildTask('stagger-c', 'Stagger C', 11),
+        ],
+      })
+    );
+  });
+
+  await page.goto('/planner');
+  const staggerA = page.getByTestId('task-card-stagger-a');
+  const staggerB = page.getByTestId('task-card-stagger-b');
+  const staggerC = page.getByTestId('task-card-stagger-c');
+  await expect(staggerA).toBeVisible();
+  await expect(staggerB).toBeVisible();
+  await expect(staggerC).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const first = document.querySelector(
+      '[data-testid="task-card-stagger-a"]'
+    ) as HTMLElement | null;
+    const second = document.querySelector(
+      '[data-testid="task-card-stagger-b"]'
+    ) as HTMLElement | null;
+    const third = document.querySelector(
+      '[data-testid="task-card-stagger-c"]'
+    ) as HTMLElement | null;
+    if (!first || !second || !third) return null;
+
+    return {
+      topA: first.getBoundingClientRect().top,
+      topB: second.getBoundingClientRect().top,
+      topC: third.getBoundingClientRect().top,
+    };
+  });
+
+  expect(geometry).not.toBeNull();
+  if (!geometry) {
+    throw new Error('Stagger card geometry was not available.');
+  }
+  expect(Math.abs(geometry.topA - geometry.topB)).toBeGreaterThanOrEqual(14);
+  expect(Math.abs(geometry.topA - geometry.topC)).toBeLessThanOrEqual(4);
+});
+
+test('same-bucket overlaps always stack while non-overlap reuses base lane', async ({ page }) => {
+  await bootstrapLocalMode(page, { seedDemoTasks: false });
+  await page.addInitScript(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const buildTask = (id: string, title: string, hour: number, durationMinutes: number) => {
+      const start = new Date(today);
+      start.setHours(hour, 0, 0, 0);
+      return {
+        id,
+        title,
+        description: '',
+        startDateTime: start.toISOString(),
+        durationMinutes,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
+        completed: false,
+        color: '#c9ced8',
+        subtasks: [],
+        type: 'quick',
+        assignedTo: 'user1',
+        status: 'scheduled',
+        focus: false,
+        executionStatus: 'idle',
+        actualMinutes: 0,
+        version: 0,
+      };
+    };
+
+    window.localStorage.setItem(
+      'taskable-tasks',
+      JSON.stringify({
+        schemaVersion: 4,
+        tasks: [
+          buildTask('det-a', 'Det A', 9, 90),
+          buildTask('det-b', 'Det B', 9, 60),
+          buildTask('det-c', 'Det C', 11, 60),
+        ],
+      })
+    );
+  });
+
+  await page.goto('/planner');
+  await expect(page.getByTestId('task-card-det-a')).toBeVisible();
+  await expect(page.getByTestId('task-card-det-b')).toBeVisible();
+  await expect(page.getByTestId('task-card-det-c')).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const a = document.querySelector('[data-testid="task-card-det-a"]') as HTMLElement | null;
+    const b = document.querySelector('[data-testid="task-card-det-b"]') as HTMLElement | null;
+    const c = document.querySelector('[data-testid="task-card-det-c"]') as HTMLElement | null;
+    if (!a || !b || !c) return null;
+    const rectA = a.getBoundingClientRect();
+    const rectB = b.getBoundingClientRect();
+    const rectC = c.getBoundingClientRect();
+    return {
+      topA: rectA.top,
+      topB: rectB.top,
+      topC: rectC.top,
+      leftA: rectA.left,
+      leftB: rectB.left,
+      leftC: rectC.left,
+    };
+  });
+
+  expect(geometry).not.toBeNull();
+  if (!geometry) {
+    throw new Error('Could not read overlap geometry.');
+  }
+
+  expect(Math.abs(geometry.leftA - geometry.leftB)).toBeLessThanOrEqual(6);
+  expect(Math.abs(geometry.topA - geometry.topB)).toBeGreaterThanOrEqual(120);
+  expect(Math.abs(geometry.topA - geometry.topC)).toBeLessThanOrEqual(8);
+  expect(Math.abs(geometry.leftA - geometry.leftC)).toBeGreaterThan(120);
+});

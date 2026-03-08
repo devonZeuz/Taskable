@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { getDateFromDayKey, hasConflict } from '../services/scheduling';
 import { useUserPreferences } from './UserPreferencesContext';
+import { useOnboarding } from './OnboardingContext';
 import {
   accumulateIfRunning,
   getDurationToNow,
@@ -23,6 +24,7 @@ import { getRandomThemeColor } from '../services/taskColor';
 import { updateDurationProfileOnCompletion } from '../services/durationProfile';
 import { recordExecutionTelemetryEvent } from '../services/executionTelemetry';
 import { resolveExecutionModeV1Flag } from '../flags';
+import { recordProductEvent } from '../services/productAnalytics';
 
 export interface SubTask {
   id: string;
@@ -60,6 +62,10 @@ interface ReplaceTaskOptions {
   clearHistory?: boolean;
 }
 
+interface AddTaskOptions {
+  skipProductAnalytics?: boolean;
+}
+
 interface TaskContextType {
   tasks: Task[];
   selectedTaskId: string | null;
@@ -67,7 +73,10 @@ interface TaskContextType {
   setSelectedTaskId: (taskId: string | null) => void;
   clearSelectedTask: () => void;
   loadDemoData: () => void;
-  addTask: (task: Omit<Task, 'id' | 'color'> & { color?: string }) => Task;
+  addTask: (
+    task: Omit<Task, 'id' | 'color'> & { color?: string },
+    options?: AddTaskOptions
+  ) => Task;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, startDateTime: string) => void;
@@ -489,6 +498,7 @@ function taskReducer(state: TaskState, action: TaskAction): TaskState {
 
 export function TaskProvider({ children }: { children: ReactNode }) {
   const { preferences } = useUserPreferences();
+  const { mode } = useOnboarding();
   const executionModeV1Enabled = resolveExecutionModeV1Flag();
   const shouldCaptureDriftTelemetry =
     executionModeV1Enabled && Boolean(preferences.executionModeEnabled);
@@ -606,7 +616,10 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     };
   }, [hasRunningTasks]);
 
-  const addTask = (task: Omit<Task, 'id' | 'color'> & { color?: string }): Task => {
+  const addTask = (
+    task: Omit<Task, 'id' | 'color'> & { color?: string },
+    options?: AddTaskOptions
+  ): Task => {
     const isScheduled = Boolean(task.startDateTime) && task.status !== 'inbox';
     const resolvedColor =
       typeof task.color === 'string' && task.color.trim().length > 0
@@ -637,6 +650,26 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       lastEndPromptAt: task.lastEndPromptAt ?? task.lastPromptAt,
       lastPromptAt: task.lastEndPromptAt ?? task.lastPromptAt,
     };
+
+    if (!options?.skipProductAnalytics) {
+      recordProductEvent({
+        eventType: 'task_created',
+        mode: mode ?? 'unknown',
+        metadata: {
+          scheduled: newTask.status === 'scheduled',
+          taskType: newTask.type,
+        },
+      });
+      if (state.tasks.length === 0) {
+        recordProductEvent({
+          eventType: 'activation_first_task_created',
+          mode: mode ?? 'unknown',
+          metadata: {
+            scheduled: newTask.status === 'scheduled',
+          },
+        });
+      }
+    }
 
     dispatch({ type: 'commit', updater: (prev) => [...prev, newTask] });
     return newTask;

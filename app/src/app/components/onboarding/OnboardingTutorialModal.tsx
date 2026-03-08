@@ -1,16 +1,32 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../ui/button';
-import './OnboardingTutorialModal.css';
+import { useTasks } from '../../context/TaskContext';
+import { recordProductEvent } from '../../services/productAnalytics';
+import { requestCloseSettings, requestOpenSettings } from '../../services/settingsBridge';
+import './OnboardingSpotlightTour.css';
 
 type TutorialMode = 'local' | 'cloud';
-type TutorialScene = 'calendar' | 'inbox' | 'drag' | 'execute' | 'review' | 'cloud';
+type SpotlightPlacement = 'top' | 'right' | 'bottom' | 'left';
 
-interface TutorialSlide {
+type TargetRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+interface TutorialStep {
   id: string;
   title: string;
   description: string;
-  scene: TutorialScene;
+  details?: string[];
+  placement: SpotlightPlacement;
+  targetPadding?: number;
+  mergeTargets?: boolean;
+  target: () => HTMLElement | null;
+  secondaryTargets?: () => HTMLElement[];
+  arrowTargets?: () => HTMLElement[];
+  prepare?: () => void;
 }
 
 interface OnboardingTutorialModalProps {
@@ -20,56 +36,107 @@ interface OnboardingTutorialModalProps {
   onFinish: () => void;
 }
 
-const BASE_SLIDES: TutorialSlide[] = [
-  {
-    id: 'calendar-overview',
-    title: 'Your day at a glance',
-    description:
-      "See the full planner timeline in one place, including what's done, running, and up next.",
-    scene: 'calendar',
-  },
-  {
-    id: 'capture',
-    title: 'Capture tasks instantly',
-    description: 'Drop tasks into Inbox quickly. Duration suggestions help you schedule faster.',
-    scene: 'inbox',
-  },
-  {
-    id: 'drag-plan',
-    title: 'Drag tasks into your day',
-    description:
-      'Reschedule directly on the timeline by dragging a task to a new slot and dropping to update it.',
-    scene: 'drag',
-  },
-  {
-    id: 'execute',
-    title: 'Run tasks in real time',
-    description:
-      'Start, pause, and complete tasks from cards while execution progress stays visible.',
-    scene: 'execute',
-  },
-  {
-    id: 'review',
-    title: 'Review and improve',
-    description:
-      'Use weekly trends to spot what worked and where to improve focus, completion, and timing.',
-    scene: 'review',
-  },
-];
+function getVisibleElements(selectors: string[]): HTMLElement[] {
+  if (typeof document === 'undefined') return [];
+  const results: HTMLElement[] = [];
+  const seen = new Set<HTMLElement>();
+  for (const selector of selectors) {
+    const matches = Array.from(document.querySelectorAll<HTMLElement>(selector));
+    matches.forEach((element) => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      if (seen.has(element)) return;
+      seen.add(element);
+      results.push(element);
+    });
+  }
+  return results;
+}
 
-const CLOUD_SLIDE: TutorialSlide = {
-  id: 'cloud',
-  title: 'Cloud sync basics',
-  description:
-    'Cloud mode keeps changes synced across devices and surfaces conflicts when two edits collide.',
-  scene: 'cloud',
-};
+function getFirstVisibleElement(selectors: string[]): HTMLElement | null {
+  return getVisibleElements(selectors)[0] ?? null;
+}
 
-function formatElapsed(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const mins = Math.floor(safeSeconds / 60);
-  const rem = safeSeconds % 60;
-  return `${mins}:${String(rem).padStart(2, '0')}`;
+function clickFirstVisible(selectors: string[]) {
+  const element = getFirstVisibleElement(selectors);
+  if (!element) return false;
+  element.click();
+  return true;
+}
+
+function closeTaskDialogIfOpen() {
+  clickFirstVisible(['[data-testid="task-dialog-cancel"]']);
+}
+
+function closeQuickActionsIfOpen() {
+  clickFirstVisible(['[data-testid="task-quick-actions-close"]']);
+}
+
+function getElementCenter(element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+function parseQuickAddMinutes(testId: string): number | null {
+  const match = testId.match(/(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function getPreferredQuickAddTargets(): HTMLElement[] {
+  const allCells = getVisibleElements(['[data-testid^="quick-add-cell-"]']);
+  if (allCells.length === 0) return [];
+
+  const nowIndicator = document.querySelector<HTMLElement>('[data-testid="timeline-now-indicator"]');
+  const nowColumn = nowIndicator?.closest<HTMLElement>('[data-testid^="day-column-"]') ?? null;
+  const candidateCells =
+    nowColumn ? allCells.filter((cell) => nowColumn.contains(cell)) : allCells;
+  const usableCells = candidateCells.length > 0 ? candidateCells : allCells;
+  const roundedNow = new Date();
+  roundedNow.setMinutes(Math.ceil(roundedNow.getMinutes() / 15) * 15, 0, 0);
+  const targetMinutes = roundedNow.getHours() * 60 + roundedNow.getMinutes();
+
+  const preferredCell =
+    usableCells
+      .map((cell) => {
+        const testId = cell.getAttribute('data-testid') ?? '';
+        const button = cell.querySelector<HTMLElement>('[data-testid^="quick-add-"]');
+        const buttonTestId = button?.getAttribute('data-testid') ?? '';
+        const minutes = parseQuickAddMinutes(buttonTestId || testId);
+        if (minutes === null) return null;
+        return {
+          cell,
+          delta: Math.abs(minutes - targetMinutes),
+        };
+      })
+      .filter((entry): entry is { cell: HTMLElement; delta: number } => Boolean(entry))
+      .sort((left, right) => left.delta - right.delta)[0]?.cell ??
+    usableCells[0];
+
+  if (!preferredCell) return [];
+  const button = preferredCell.querySelector<HTMLElement>('[data-testid^="quick-add-"]');
+  return button ? [preferredCell, button] : [preferredCell];
+}
+
+function ensureDailyPlanningExpanded() {
+  if (clickFirstVisible(['[data-testid="daily-planning-open-panel"]'])) return;
+  const collapseToggle = getFirstVisibleElement(['[data-testid="daily-planning-collapse-toggle"]']);
+  if (collapseToggle && /expand/i.test(collapseToggle.textContent ?? '')) {
+    collapseToggle.click();
+  }
+}
+
+function ensureDailyPlanningCollapsed() {
+  const collapseToggle = getFirstVisibleElement(['[data-testid="daily-planning-collapse-toggle"]']);
+  if (collapseToggle && /collapse/i.test(collapseToggle.textContent ?? '')) {
+    collapseToggle.click();
+  }
 }
 
 export default function OnboardingTutorialModal({
@@ -78,435 +145,759 @@ export default function OnboardingTutorialModal({
   onSkip,
   onFinish,
 }: OnboardingTutorialModalProps) {
-  const slides = useMemo(() => {
-    if (mode === 'cloud') {
-      return [...BASE_SLIDES, CLOUD_SLIDE];
-    }
-    return BASE_SLIDES;
-  }, [mode]);
-
+  const { tasks, addTask, deleteTask, startTask } = useTasks();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [executeElapsedSeconds, setExecuteElapsedSeconds] = useState(0);
-  const currentSlide = slides[currentIndex];
-  const isLast = currentIndex >= slides.length - 1;
-  const stepLabel = `Step ${currentIndex + 1} of ${slides.length}`;
+  const [targetRects, setTargetRects] = useState<TargetRect[]>([]);
+  const [arrowRects, setArrowRects] = useState<TargetRect[]>([]);
+  const [bubbleSize, setBubbleSize] = useState({ width: 360, height: 228 });
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
+  const onboardingTaskIdRef = useRef<string | null>(null);
+  const highlightedElementsRef = useRef<HTMLElement[]>([]);
+  const backdropMaskId = useId().replace(/:/g, '-');
+
+  const clearStepHighlights = () => {
+    highlightedElementsRef.current.forEach((element) => {
+      delete element.dataset.onboardingQuickAdd;
+    });
+    highlightedElementsRef.current = [];
+  };
+
+  const cleanupOnboardingTask = () => {
+    const taskId = onboardingTaskIdRef.current;
+    if (!taskId) return;
+    onboardingTaskIdRef.current = null;
+    if (tasks.some((task) => task.id === taskId)) {
+      deleteTask(taskId);
+    }
+  };
+
+  const ensureInboxVisible = () => {
+    if (getFirstVisibleElement(['[data-testid="inbox-panel"]'])) return;
+    void clickFirstVisible(['[data-testid="sidebar-icon-inbox-personal"]']);
+  };
+
+  const ensureCapacityVisible = () => {
+    if (getFirstVisibleElement(['[data-testid="capacity-bar-panel"]'])) return;
+    void clickFirstVisible(['[data-testid="sidebar-icon-capacity-personal"]']);
+  };
+
+  const ensureTourTask = () => {
+    const existingTaskId = onboardingTaskIdRef.current;
+    if (existingTaskId && tasks.some((task) => task.id === existingTaskId)) {
+      return existingTaskId;
+    }
+
+    const startDate = new Date();
+    startDate.setMinutes(Math.ceil(startDate.getMinutes() / 15) * 15, 0, 0);
+
+    const task = addTask(
+      {
+        title: 'Onboarding walkthrough task',
+        description: 'Temporary task used only during the onboarding spotlight tour.',
+        startDateTime: startDate.toISOString(),
+        durationMinutes: 60,
+        subtasks: [
+          { id: 'onboard-subtask-1', title: 'Capture the task', completed: true },
+          { id: 'onboard-subtask-2', title: 'Place it on the calendar', completed: false },
+        ],
+        type: 'large',
+        completed: false,
+        status: 'scheduled',
+        executionStatus: 'idle',
+        actualMinutes: 0,
+        version: 0,
+      },
+      { skipProductAnalytics: true }
+    );
+
+    onboardingTaskIdRef.current = task.id;
+    return task.id;
+  };
+
+  const steps = useMemo<TutorialStep[]>(
+    () => [
+      {
+        id: 'inbox',
+        title: 'Start with Inbox',
+        description:
+          'Capture loose work here first. Drag emails or text into Inbox, then schedule it once the timing is clear.',
+        placement: 'right',
+        targetPadding: 14,
+        target: () =>
+          getFirstVisibleElement([
+            '[data-testid="inbox-panel"]',
+            '[data-testid="sidebar-icon-inbox-personal"]',
+          ]),
+        prepare: () => {
+          requestCloseSettings();
+          closeTaskDialogIfOpen();
+          closeQuickActionsIfOpen();
+          ensureDailyPlanningCollapsed();
+          ensureInboxVisible();
+        },
+      },
+      {
+        id: 'create-task-paths',
+        title: 'Create tasks in two ways',
+        description:
+          'Use Add Task when you already know the details. Use the plus button inside the calendar when you want to place work directly on the timeline.',
+        placement: 'bottom',
+        targetPadding: 12,
+        target: () => getFirstVisibleElement(['[data-testid="add-task-trigger"]']),
+        secondaryTargets: () => getPreferredQuickAddTargets(),
+        prepare: () => {
+          requestCloseSettings();
+          closeTaskDialogIfOpen();
+          closeQuickActionsIfOpen();
+          ensureDailyPlanningCollapsed();
+        },
+      },
+      {
+        id: 'task-dialog',
+        title: 'Choose the task type before you place it',
+        description:
+          'Pick the task type, then set the scheduling details.',
+        details: [
+          'Quick: short focused work in a standard slot',
+          'Complex: multi-step work that needs structure',
+          'Block: reserved time on the calendar',
+          'Set day, start time, duration, and scheduling intent here',
+        ],
+        placement: 'right',
+        targetPadding: 14,
+        mergeTargets: true,
+        target: () => getFirstVisibleElement(['[data-testid="task-scheduling-section"]']),
+        secondaryTargets: () => getVisibleElements(['[data-testid="task-type-section"]']),
+        prepare: () => {
+          requestCloseSettings();
+          closeQuickActionsIfOpen();
+          ensureDailyPlanningCollapsed();
+          if (getFirstVisibleElement(['[data-testid="task-dialog-form"]'])) return;
+          const openedFromTopbar = clickFirstVisible(['[data-testid="add-task-trigger"]']);
+          if (!openedFromTopbar) {
+            void clickFirstVisible(['[data-testid^="quick-add-"]']);
+          }
+          window.setTimeout(() => {
+            if (getFirstVisibleElement(['[data-testid="task-dialog-form"]'])) return;
+            clickFirstVisible(['[data-testid="add-task-trigger"]']);
+          }, 90);
+        },
+      },
+      {
+        id: 'task-hud',
+        title: 'Run the task from the live HUD',
+        description:
+          'Once work starts, open the task card to get the live HUD.',
+        details: [
+          'Start or Pause: control live execution',
+          'Done: mark the work complete',
+          'Extend: stretch the task to cover reality',
+          'Next: move remaining work forward',
+          'Close: dismiss the HUD when you are done',
+        ],
+        placement: 'left',
+        targetPadding: 14,
+        target: () =>
+          getFirstVisibleElement([
+            `[data-testid="task-card-${onboardingTaskIdRef.current ?? 'missing'}"]`,
+            '[data-testid="task-quick-actions-hub"]',
+          ]),
+        secondaryTargets: () =>
+          getVisibleElements([
+            `[data-testid="task-action-strip-${onboardingTaskIdRef.current ?? 'missing'}"]`,
+            '[data-testid="task-quick-actions-hub"]',
+          ]),
+        arrowTargets: () =>
+          getVisibleElements([`[data-testid="task-action-strip-${onboardingTaskIdRef.current ?? 'missing'}"]`]),
+        prepare: () => {
+          requestCloseSettings();
+          closeTaskDialogIfOpen();
+          ensureDailyPlanningCollapsed();
+          const taskId = ensureTourTask();
+          window.requestAnimationFrame(() => {
+            if (!tasks.some((task) => task.id === taskId && task.executionStatus === 'running')) {
+              startTask(taskId);
+            }
+            window.requestAnimationFrame(() => {
+              const card = document.querySelector<HTMLElement>(`[data-testid="task-card-${taskId}"]`);
+              card?.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+              card?.click();
+            });
+          });
+        },
+      },
+      {
+        id: 'capacity',
+        title: 'Capacity shows if the day is realistic',
+        description:
+          'This panel compares planned work against the available workday. Use it to spot overload before the schedule gets away from you.',
+        placement: 'right',
+        targetPadding: 12,
+        target: () =>
+          getFirstVisibleElement([
+            '[data-testid="capacity-bar-panel"]',
+            '[data-testid="sidebar-icon-capacity-personal"]',
+          ]),
+        prepare: () => {
+          requestCloseSettings();
+          closeTaskDialogIfOpen();
+          closeQuickActionsIfOpen();
+          ensureDailyPlanningCollapsed();
+          ensureCapacityVisible();
+        },
+      },
+      {
+        id: 'daily-planning',
+        title: 'Daily Planning is your command surface',
+        description:
+          'This panel summarizes progress, near-term work, alerts, and end-of-day review. It is the fastest way to steer today without scanning the full timeline.',
+        placement: 'bottom',
+        targetPadding: 12,
+        target: () => getFirstVisibleElement(['[data-testid="daily-planning-panel"]']),
+        prepare: () => {
+          requestCloseSettings();
+          closeTaskDialogIfOpen();
+          closeQuickActionsIfOpen();
+          ensureDailyPlanningExpanded();
+        },
+      },
+      {
+        id: 'settings-general',
+        title: 'General settings shape the planner',
+        description:
+          'General settings control workday hours, slot size, default duration, week start, time format, zoom, density, and other planner defaults.',
+        placement: 'left',
+        targetPadding: 14,
+        target: () => getFirstVisibleElement(['[data-testid="settings-drawer"]']),
+        prepare: () => {
+          closeTaskDialogIfOpen();
+          closeQuickActionsIfOpen();
+          ensureDailyPlanningCollapsed();
+          requestOpenSettings({ section: 'general' });
+        },
+      },
+    ],
+    [addTask, deleteTask, startTask, tasks]
+  );
+
+  const currentStep = steps[currentIndex];
+  const isLast = currentIndex >= steps.length - 1;
+  const stepLabel = `Step ${currentIndex + 1} of ${steps.length}`;
 
   useEffect(() => {
     if (!open) return;
     setCurrentIndex(0);
-  }, [open, mode]);
+  }, [open]);
 
   useEffect(() => {
-    if (!open || currentSlide.scene !== 'execute') {
-      setExecuteElapsedSeconds(0);
+    if (!open) return;
+    recordProductEvent({
+      eventType: 'tutorial_viewed',
+      mode,
+      metadata: { stepCount: steps.length, tourStyle: 'spotlight' },
+    });
+  }, [mode, open, steps.length]);
+
+  useEffect(() => {
+    if (!open) {
+      requestCloseSettings();
+      closeTaskDialogIfOpen();
+      closeQuickActionsIfOpen();
+      cleanupOnboardingTask();
+      clearStepHighlights();
+      setArrowRects([]);
+      if (typeof document !== 'undefined') {
+        delete document.documentElement.dataset.onboardingStep;
+      }
       return;
     }
 
-    setExecuteElapsedSeconds(0);
-    const timerId = window.setInterval(() => {
-      setExecuteElapsedSeconds((previous) => (previous >= 179 ? 0 : previous + 1));
-    }, 1000);
-    return () => {
-      window.clearInterval(timerId);
-    };
-  }, [currentSlide.scene, open]);
+    document.documentElement.dataset.onboardingStep = currentStep.id;
+    currentStep.prepare?.();
 
-  const handleBack = () => {
-    setCurrentIndex((previous) => Math.max(0, previous - 1));
+    return () => {
+      clearStepHighlights();
+      if (typeof document !== 'undefined') {
+        delete document.documentElement.dataset.onboardingStep;
+      }
+    };
+  }, [currentStep, open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const scrollToTarget = () => {
+      const element = currentStep.target();
+      if (!element) return false;
+      element.scrollIntoView({
+        behavior: 'auto',
+        block: 'center',
+        inline: 'center',
+      });
+      return true;
+    };
+
+    if (!scrollToTarget()) {
+      const retryId = window.setTimeout(scrollToTarget, 80);
+      return () => window.clearTimeout(retryId);
+    }
+
+    return undefined;
+  }, [currentStep, open]);
+
+  useEffect(() => {
+    if (!open) {
+      setTargetRects([]);
+      return undefined;
+    }
+
+    const updateTargetRects = () => {
+      const primaryTarget = currentStep.target();
+      const secondaryTargets = currentStep.secondaryTargets?.() ?? [];
+      const elements = [primaryTarget, ...secondaryTargets].filter(
+        (element): element is HTMLElement => Boolean(element)
+      );
+
+      if (elements.length === 0) {
+        return;
+      }
+
+      clearStepHighlights();
+      if (currentStep.id === 'create-task-paths') {
+        elements.forEach((element) => {
+          const testId = element.getAttribute('data-testid') ?? '';
+          if (testId.startsWith('quick-add-cell-')) {
+            element.dataset.onboardingQuickAdd = 'cell';
+            highlightedElementsRef.current.push(element);
+            return;
+          }
+          if (testId.startsWith('quick-add-')) {
+            element.dataset.onboardingQuickAdd = 'button';
+            highlightedElementsRef.current.push(element);
+          }
+        });
+      }
+
+      const padding = currentStep.targetPadding ?? 10;
+      const toRect = (element: HTMLElement) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          left: Math.max(10, rect.left - padding),
+          top: Math.max(10, rect.top - padding),
+          width: rect.width + padding * 2,
+          height: rect.height + padding * 2,
+        };
+      };
+      const rawRects = elements.map(toRect);
+      const nextRects = currentStep.mergeTargets
+        ? [mergeTargetRects(rawRects)]
+        : rawRects;
+      const nextArrowRects = (currentStep.arrowTargets?.() ?? [])
+        .filter((element): element is HTMLElement => Boolean(element))
+        .map(toRect);
+
+      setTargetRects((previous) => {
+        if (
+          previous.length === nextRects.length &&
+          previous.every(
+            (rect, index) =>
+              Math.abs(rect.left - nextRects[index].left) < 0.5 &&
+              Math.abs(rect.top - nextRects[index].top) < 0.5 &&
+              Math.abs(rect.width - nextRects[index].width) < 0.5 &&
+              Math.abs(rect.height - nextRects[index].height) < 0.5
+          )
+        ) {
+          return previous;
+        }
+        return nextRects;
+      });
+      setArrowRects((previous) => {
+        const effectiveArrowRects = nextArrowRects.length > 0 ? nextArrowRects : [nextRects[0]];
+        if (
+          previous.length === effectiveArrowRects.length &&
+          previous.every(
+            (rect, index) =>
+              Math.abs(rect.left - effectiveArrowRects[index].left) < 0.5 &&
+              Math.abs(rect.top - effectiveArrowRects[index].top) < 0.5 &&
+              Math.abs(rect.width - effectiveArrowRects[index].width) < 0.5 &&
+              Math.abs(rect.height - effectiveArrowRects[index].height) < 0.5
+          )
+        ) {
+          return previous;
+        }
+        return effectiveArrowRects;
+      });
+    };
+
+    updateTargetRects();
+    const intervalId = window.setInterval(updateTargetRects, 100);
+    window.addEventListener('resize', updateTargetRects);
+    window.addEventListener('scroll', updateTargetRects, true);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('resize', updateTargetRects);
+      window.removeEventListener('scroll', updateTargetRects, true);
+    };
+  }, [currentStep, open]);
+
+  useLayoutEffect(() => {
+    if (!open || !bubbleRef.current) return;
+    const nextWidth = bubbleRef.current.offsetWidth || 360;
+    const nextHeight = bubbleRef.current.offsetHeight || 228;
+    setBubbleSize((previous) =>
+      previous.width === nextWidth && previous.height === nextHeight
+        ? previous
+        : { width: nextWidth, height: nextHeight }
+    );
+  }, [currentIndex, open, targetRects]);
+
+  const handleSkip = (reason: 'skip' | 'escape') => {
+    requestCloseSettings();
+    closeTaskDialogIfOpen();
+    closeQuickActionsIfOpen();
+    cleanupOnboardingTask();
+    clearStepHighlights();
+    recordProductEvent({
+      eventType: 'tutorial_skipped',
+      mode,
+      metadata: { step: currentIndex + 1, stepId: currentStep.id, reason },
+    });
+    onSkip();
   };
 
   const handleNext = () => {
     if (isLast) {
+      requestCloseSettings();
+      closeTaskDialogIfOpen();
+      closeQuickActionsIfOpen();
+      cleanupOnboardingTask();
+      clearStepHighlights();
+      recordProductEvent({
+        eventType: 'tutorial_completed',
+        mode,
+        metadata: { stepCount: steps.length, tourStyle: 'spotlight' },
+      });
       onFinish();
       return;
     }
-    setCurrentIndex((previous) => Math.min(slides.length - 1, previous + 1));
+    goToStep(Math.min(steps.length - 1, currentIndex + 1));
   };
 
+  const goToStep = (nextIndex: number) => {
+    const resolvedIndex = Math.min(steps.length - 1, Math.max(0, nextIndex));
+    if (resolvedIndex === currentIndex) return;
+
+    const nextStep = steps[resolvedIndex];
+    if (nextStep.id === 'task-dialog' || nextStep.id === 'task-hud') {
+      nextStep.prepare?.();
+    }
+    setCurrentIndex(resolvedIndex);
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleSkip('escape');
+        return;
+      }
+      if (event.key === 'ArrowRight') {
+        handleNext();
+        return;
+      }
+      if (event.key === 'ArrowLeft') {
+        goToStep(Math.max(0, currentIndex - 1));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentIndex, isLast, open]);
+
+  if (!open) return null;
+
+  const primaryRect = targetRects[0] ?? null;
+  const bubblePosition = getBubblePosition(primaryRect, bubbleSize, currentStep.placement);
+  const arrowPaths = arrowRects
+    .map((rect) => getArrowPath(rect, bubblePosition, bubbleSize, bubblePosition.placement))
+    .filter(Boolean);
+  const viewportWidth = typeof window === 'undefined' ? 1440 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
-          onSkip();
-        }
-      }}
+    <div
+      data-testid="onboarding-tutorial-modal"
+      className="onboarding-spotlight-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Tareva onboarding tour"
     >
-      <DialogContent
-        data-testid="onboarding-tutorial-modal"
-        className="onboarding-tutorial-modal w-[min(560px,calc(100vw-1rem))] max-w-none overflow-hidden rounded-[22px] border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] p-0 text-[color:var(--hud-text)]"
-        onPointerDownOutside={(event) => event.preventDefault()}
-        onInteractOutside={(event) => event.preventDefault()}
+      <svg className="onboarding-spotlight-backdrop" aria-hidden="true">
+        <defs>
+          <mask id={backdropMaskId}>
+            <rect width="100%" height="100%" fill="white" />
+            {targetRects.map((rect, index) => (
+              <rect
+                key={`spotlight-mask-${index}`}
+                x={rect.left}
+                y={rect.top}
+                width={rect.width}
+                height={rect.height}
+                rx="20"
+                ry="20"
+                fill="black"
+              />
+            ))}
+          </mask>
+        </defs>
+        <rect
+          width={viewportWidth}
+          height={viewportHeight}
+          fill="rgba(3, 5, 10, 0.5)"
+          mask={`url(#${backdropMaskId})`}
+        />
+      </svg>
+
+      {targetRects.length > 0 ? (
+        <>
+          {targetRects.map((rect, index) => (
+            <div
+              key={`spotlight-rect-${index}`}
+              className="onboarding-spotlight-hole"
+              style={{
+                left: `${rect.left}px`,
+                top: `${rect.top}px`,
+                width: `${rect.width}px`,
+                height: `${rect.height}px`,
+              }}
+            />
+          ))}
+          {arrowPaths.length > 0 ? (
+            <svg className="onboarding-spotlight-arrow" aria-hidden="true">
+              {arrowPaths.map((path, index) => (
+                <path key={`spotlight-arrow-${index}`} d={path} />
+              ))}
+            </svg>
+          ) : null}
+        </>
+      ) : null}
+
+      <div
+        ref={bubbleRef}
+        className="onboarding-spotlight-card"
+        style={{
+          left: `${bubblePosition.left}px`,
+          top: `${bubblePosition.top}px`,
+        }}
       >
-        <DialogHeader className="sr-only">
-          <DialogTitle>{currentSlide.title}</DialogTitle>
-          <DialogDescription>{currentSlide.description}</DialogDescription>
-        </DialogHeader>
-
-        <div className="onboarding-tutorial-preview" aria-hidden="true">
-          <TutorialPreview
-            scene={currentSlide.scene}
-            mode={mode}
-            executeElapsedSeconds={executeElapsedSeconds}
-          />
-        </div>
-
-        <div className="onboarding-tutorial-body">
-          <div className="onboarding-tutorial-head">
-            <p className="onboarding-tutorial-step">{stepLabel}</p>
+        <div className="onboarding-spotlight-head">
+          <p className="onboarding-spotlight-step">{stepLabel}</p>
+          {!isLast ? (
             <Button
               type="button"
               variant="ghost"
-              onClick={onSkip}
+              onClick={() => handleSkip('skip')}
               data-testid="onboarding-tutorial-skip"
-              className="onboarding-tutorial-skip-chip"
+              className="onboarding-spotlight-skip"
             >
               Skip
             </Button>
-          </div>
-          <h2 className="onboarding-tutorial-title">{currentSlide.title}</h2>
-          <p className="onboarding-tutorial-description">{currentSlide.description}</p>
-
-          <div className="onboarding-tutorial-footer">
-            <div className="onboarding-tutorial-dots" data-testid="onboarding-dots">
-              {slides.map((slide, index) => (
-                <button
-                  key={slide.id}
-                  type="button"
-                  aria-label={`Go to step ${index + 1}`}
-                  data-testid={`onboarding-dot-${index}`}
-                  onClick={() => setCurrentIndex(index)}
-                  className={`onboarding-tutorial-dot${index === currentIndex ? ' is-active' : ''}`}
-                />
-              ))}
-            </div>
-
-            <div className="onboarding-tutorial-actions">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleBack}
-                disabled={currentIndex === 0}
-                data-testid="onboarding-tutorial-back"
-                className="onboarding-tutorial-btn is-secondary"
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleNext}
-                data-testid={isLast ? 'onboarding-tutorial-finish' : 'onboarding-tutorial-next'}
-                className="onboarding-tutorial-btn is-primary"
-              >
-                {isLast ? 'Finish' : 'Next'}
-              </Button>
-            </div>
-          </div>
+          ) : (
+            <div />
+          )}
         </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
-function TutorialPreview({
-  scene,
-  mode,
-  executeElapsedSeconds,
-}: {
-  scene: TutorialScene;
-  mode: TutorialMode;
-  executeElapsedSeconds: number;
-}) {
-  const sceneClass = (target: TutorialScene) =>
-    `onboarding-tutorial-scene${scene === target ? ' is-active' : ''}`;
-  const executeProgress = Math.min(0.82, executeElapsedSeconds / 180);
-
-  return (
-    <div className="onboarding-tutorial-scenes-shell">
-      <section className={sceneClass('calendar')}>
-        <div className="onboarding-calendar-shell">
-          <div className="onboarding-calendar-rail">
-            <span className="onboarding-calendar-chip is-accent">Add Task</span>
-            <span className="onboarding-calendar-chip">Undo</span>
-            <span className="onboarding-calendar-chip">Redo</span>
-            <span className="onboarding-calendar-chip">125%</span>
-            <span className="onboarding-calendar-chip ml-auto">Personal</span>
-          </div>
-
-          <div className="onboarding-calendar-axis">
-            <span>08:00</span>
-            <span>09:00</span>
-            <span>10:00</span>
-            <span>11:00</span>
-            <span className="onboarding-calendar-now-pill">Now</span>
-          </div>
-
-          <div className="onboarding-calendar-row">
-            <div className="onboarding-calendar-day-label">
-              <p className="onboarding-calendar-day-title">Today</p>
-              <p className="onboarding-calendar-day-subtitle">Feb 26</p>
-            </div>
-
-            <div className="onboarding-calendar-grid">
-              <article className="onboarding-calendar-task is-done task-a">
-                <p className="onboarding-calendar-task-title">Germany invoices</p>
-                <p className="onboarding-calendar-task-meta">08:00-09:00</p>
-              </article>
-              <article className="onboarding-calendar-task is-running task-b">
-                <p className="onboarding-calendar-task-title">Monthly reports</p>
-                <p className="onboarding-calendar-task-meta">09:00-10:45</p>
-                <p className="onboarding-calendar-task-status">Running</p>
-              </article>
-              <article className="onboarding-calendar-task is-upcoming task-c">
-                <p className="onboarding-calendar-task-title">Design review</p>
-                <p className="onboarding-calendar-task-meta">11:00-12:00</p>
-                <span className="onboarding-calendar-task-start">Start</span>
-              </article>
-              <article className="onboarding-calendar-task is-done task-d">
-                <p className="onboarding-calendar-task-title">Swiss invoices</p>
-                <p className="onboarding-calendar-task-meta">08:00-09:00</p>
-              </article>
-              <article className="onboarding-calendar-task is-idle task-e">
-                <p className="onboarding-calendar-task-title">Update dependencies</p>
-                <p className="onboarding-calendar-task-meta">09:00-10:15</p>
-              </article>
-              <article className="onboarding-calendar-task is-upcoming task-f">
-                <p className="onboarding-calendar-task-title">Client follow-up</p>
-                <p className="onboarding-calendar-task-meta">10:30-11:30</p>
-                <span className="onboarding-calendar-task-start is-click-target">Start</span>
-              </article>
-
-              <TutorialCursor className="onboarding-calendar-cursor" />
-              <span className="onboarding-ripple onboarding-calendar-ripple" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className={sceneClass('inbox')}>
-        <div className="onboarding-inbox-shell">
-          <div className="onboarding-inbox-header">
-            <p className="onboarding-inbox-title">Inbox</p>
-            <span className="onboarding-inbox-add">Add task</span>
-          </div>
-          <ul className="onboarding-inbox-list">
-            <li className="onboarding-inbox-item">
-              <span>Q3 strategy deck</span>
-              <span className="onboarding-inbox-estimate">~2h 15m</span>
-            </li>
-            <li className="onboarding-inbox-item">
-              <span>Performance reviews</span>
-              <span className="onboarding-inbox-estimate">~3h</span>
-            </li>
-            <li className="onboarding-inbox-item">
-              <span>Update dependencies</span>
-              <span className="onboarding-inbox-estimate">~45m</span>
-            </li>
-            <li className="onboarding-inbox-item">
-              <span>Reply to contractors</span>
-              <span className="onboarding-inbox-estimate">~20m</span>
-            </li>
+        <h2 className="onboarding-spotlight-title">{currentStep.title}</h2>
+        <p className="onboarding-spotlight-description">{currentStep.description}</p>
+        {currentStep.details?.length ? (
+          <ul className="onboarding-spotlight-list">
+            {currentStep.details.map((item) => (
+              <li key={item} className="onboarding-spotlight-list-item">
+                {item}
+              </li>
+            ))}
           </ul>
-          <div className="onboarding-inbox-input">
-            <span className="onboarding-inbox-typing">Q3 strategy follow-up</span>
-          </div>
-          <TutorialCursor className="onboarding-inbox-cursor" />
+        ) : null}
+
+        <div className="onboarding-spotlight-dots" data-testid="onboarding-dots">
+          {steps.map((step, index) => (
+            <button
+              key={step.id}
+              type="button"
+              aria-label={`Go to step ${index + 1}`}
+              data-testid={`onboarding-dot-${index}`}
+              onClick={() => goToStep(index)}
+              className={`onboarding-spotlight-dot${index === currentIndex ? ' is-active' : ''}`}
+            />
+          ))}
         </div>
-      </section>
 
-      <section className={sceneClass('drag')}>
-        <div className="onboarding-drag-shell">
-          <div className="onboarding-drag-board is-full">
-            <div className="onboarding-drag-axis">
-              <span>08:00</span>
-              <span>09:00</span>
-              <span>10:00</span>
-              <span>11:00</span>
-            </div>
-            <div className="onboarding-drag-grid">
-              <div className="onboarding-drag-dropzone" />
-              <article className="onboarding-calendar-task is-running drag-task-a">
-                <p className="onboarding-calendar-task-title">Monthly reports</p>
-                <p className="onboarding-calendar-task-meta">09:00-11:00</p>
-              </article>
-              <article className="onboarding-calendar-task is-upcoming drag-task-b">
-                <p className="onboarding-calendar-task-title">Design review</p>
-                <p className="onboarding-calendar-task-meta">11:00-12:00</p>
-              </article>
-
-              <article className="onboarding-calendar-task is-idle onboarding-drag-origin-card">
-                <p className="onboarding-calendar-task-title">Q3 strategy</p>
-                <p className="onboarding-calendar-task-meta">08:00-10:15</p>
-                <span className="onboarding-calendar-task-start">Start</span>
-              </article>
-
-              <article className="onboarding-calendar-task is-idle onboarding-drag-moving-card">
-                <p className="onboarding-calendar-task-title">Q3 strategy</p>
-                <p className="onboarding-calendar-task-meta">08:00-10:15</p>
-                <span className="onboarding-calendar-task-start">Start</span>
-              </article>
-
-              <article className="onboarding-calendar-task is-idle onboarding-drag-updated-card">
-                <p className="onboarding-calendar-task-title">Q3 strategy</p>
-                <p className="onboarding-calendar-task-meta">09:30-11:45</p>
-                <span className="onboarding-calendar-task-start">Start</span>
-              </article>
-
-              <TutorialCursor className="onboarding-drag-cursor" />
-            </div>
-          </div>
+        <div className="onboarding-spotlight-actions">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => goToStep(Math.max(0, currentIndex - 1))}
+            disabled={currentIndex === 0}
+            data-testid="onboarding-tutorial-back"
+            className="onboarding-spotlight-btn is-secondary"
+          >
+            Back
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleNext}
+            data-testid={isLast ? 'onboarding-tutorial-finish' : 'onboarding-tutorial-next'}
+            className="onboarding-spotlight-btn is-primary"
+          >
+            {isLast ? 'Start using app' : 'Next'}
+          </Button>
         </div>
-      </section>
-
-      <section className={sceneClass('execute')}>
-        <div className="onboarding-run-shell">
-          <article className="onboarding-run-card">
-            <div className="onboarding-run-top">
-              <div>
-                <p className="onboarding-run-title">Monthly reports</p>
-                <p className="onboarding-run-meta">09:00-11:00 | 3 subtasks</p>
-              </div>
-              <span className="onboarding-run-status">
-                <span className="onboarding-run-status-dot" />
-                Running
-              </span>
-            </div>
-
-            <ul className="onboarding-run-subtasks">
-              <li>
-                <span className="onboarding-run-check check-one" />
-                Report 1
-              </li>
-              <li>
-                <span className="onboarding-run-check check-two" />
-                Report 2
-              </li>
-              <li>
-                <span className="onboarding-run-check check-three" />
-                Report 3
-              </li>
-            </ul>
-
-            <div className="onboarding-run-actions">
-              <button type="button" className="onboarding-run-action is-primary is-click-target">
-                <span className="onboarding-run-action-label is-start">Start</span>
-                <span className="onboarding-run-action-label is-pause">Pause</span>
-              </button>
-              <button type="button" className="onboarding-run-action">
-                Done
-              </button>
-              <button type="button" className="onboarding-run-action">
-                Next
-              </button>
-            </div>
-
-            <p className="onboarding-run-timer">{formatElapsed(executeElapsedSeconds)} elapsed</p>
-            <div className="onboarding-run-progress">
-              <span style={{ transform: `scaleX(${executeProgress})` }} />
-            </div>
-          </article>
-
-          <TutorialCursor className="onboarding-run-cursor" />
-          <span className="onboarding-ripple onboarding-run-ripple-start" />
-          <span className="onboarding-ripple onboarding-run-ripple-c1" />
-          <span className="onboarding-ripple onboarding-run-ripple-c2" />
-          <span className="onboarding-ripple onboarding-run-ripple-c3" />
-        </div>
-      </section>
-
-      <section className={sceneClass('review')}>
-        <div className="onboarding-review-shell">
-          <div>
-            <p className="onboarding-review-title">Weekly review</p>
-            <p className="onboarding-review-subtitle">How your week performed</p>
-          </div>
-
-          <div className="onboarding-review-stats">
-            <article className="onboarding-review-stat">
-              <p className="onboarding-review-value">24</p>
-              <p className="onboarding-review-label">Tasks done</p>
-            </article>
-            <article className="onboarding-review-stat">
-              <p className="onboarding-review-value">87%</p>
-              <p className="onboarding-review-label">On time</p>
-            </article>
-            <article className="onboarding-review-stat">
-              <p className="onboarding-review-value">18.5h</p>
-              <p className="onboarding-review-label">Focus time</p>
-            </article>
-          </div>
-
-          <div className="onboarding-review-bars">
-            <div className="onboarding-review-row">
-              <span>Completion</span>
-              <div className="onboarding-review-track">
-                <span className="fill-one" />
-              </div>
-              <span>87%</span>
-            </div>
-            <div className="onboarding-review-row">
-              <span>Focus</span>
-              <div className="onboarding-review-track">
-                <span className="fill-two" />
-              </div>
-              <span>72%</span>
-            </div>
-            <div className="onboarding-review-row">
-              <span>Accuracy</span>
-              <div className="onboarding-review-track">
-                <span className="fill-three" />
-              </div>
-              <span>94%</span>
-            </div>
-          </div>
-
-          <div className="onboarding-review-insight">
-            <p>Performance insight</p>
-            <span>You focus best Tue 09:00-11:00. Reserve that block for deep work.</span>
-          </div>
-        </div>
-      </section>
-
-      <section className={sceneClass('cloud')}>
-        <div className="onboarding-cloud-shell">
-          <p className="onboarding-cloud-title">
-            {mode === 'cloud' ? 'Workspace sync active' : 'Cloud sync'}
-          </p>
-          <p className="onboarding-cloud-subtitle">
-            Keep planner changes synced across devices with conflict-safe updates.
-          </p>
-          <div className="onboarding-cloud-flow">
-            <div className="onboarding-cloud-node">Desktop</div>
-            <div className="onboarding-cloud-link" />
-            <div className="onboarding-cloud-node is-primary">Cloud</div>
-            <div className="onboarding-cloud-link" />
-            <div className="onboarding-cloud-node">Team</div>
-          </div>
-          <ul className="onboarding-cloud-points">
-            <li>Live sync between sessions</li>
-            <li>Conflict detection before overwrite</li>
-            <li>Workspace-aware roles and visibility</li>
-          </ul>
-        </div>
-      </section>
+      </div>
     </div>
   );
 }
 
-function TutorialCursor({ className }: { className: string }) {
-  return (
-    <span className={`onboarding-cursor ${className}`}>
-      <span className="onboarding-cursor-inner">
-        <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path
-            d="M3 1.5L14.5 9L9.5 10.5L7.5 15.5L3 1.5Z"
-            fill="white"
-            stroke="rgba(0,0,0,0.45)"
-            strokeWidth="0.8"
-          />
-        </svg>
-      </span>
-    </span>
-  );
+function mergeTargetRects(rects: TargetRect[]): TargetRect {
+  if (rects.length === 0) {
+    return { left: 0, top: 0, width: 0, height: 0 };
+  }
+
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(...rects.map((rect) => rect.left + rect.width));
+  const bottom = Math.max(...rects.map((rect) => rect.top + rect.height));
+
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+function getBubblePosition(
+  targetRect: TargetRect | null,
+  bubbleSize: { width: number; height: number },
+  placement: SpotlightPlacement
+) {
+  const viewportWidth = typeof window === 'undefined' ? 1440 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
+  const gutter = 18;
+  const gap = 24;
+
+  if (!targetRect) {
+    return {
+      left: Math.max(gutter, Math.round((viewportWidth - bubbleSize.width) / 2)),
+      top: Math.max(gutter, Math.round((viewportHeight - bubbleSize.height) / 2)),
+      placement,
+    };
+  }
+
+  const candidates = {
+    top: {
+      left: targetRect.left + targetRect.width / 2 - bubbleSize.width / 2,
+      top: targetRect.top - bubbleSize.height - gap,
+    },
+    right: {
+      left: targetRect.left + targetRect.width + gap,
+      top: targetRect.top + targetRect.height / 2 - bubbleSize.height / 2,
+    },
+    bottom: {
+      left: targetRect.left + targetRect.width / 2 - bubbleSize.width / 2,
+      top: targetRect.top + targetRect.height + gap,
+    },
+    left: {
+      left: targetRect.left - bubbleSize.width - gap,
+      top: targetRect.top + targetRect.height / 2 - bubbleSize.height / 2,
+    },
+  } satisfies Record<SpotlightPlacement, { left: number; top: number }>;
+
+  const orderedPlacements: SpotlightPlacement[] = [
+    placement,
+    placement === 'left' || placement === 'right' ? 'bottom' : 'right',
+    placement === 'top' || placement === 'bottom' ? 'left' : 'top',
+    placement === 'top' ? 'bottom' : 'top',
+  ];
+
+  const chosen =
+    orderedPlacements.find((option) => {
+      const next = candidates[option];
+      return (
+        next.left >= gutter &&
+        next.top >= gutter &&
+        next.left + bubbleSize.width <= viewportWidth - gutter &&
+        next.top + bubbleSize.height <= viewportHeight - gutter
+      );
+    }) ?? placement;
+
+  return {
+    left: clamp(candidates[chosen].left, gutter, viewportWidth - bubbleSize.width - gutter),
+    top: clamp(candidates[chosen].top, gutter, viewportHeight - bubbleSize.height - gutter),
+    placement: chosen,
+  };
+}
+
+function getArrowPath(
+  targetRect: TargetRect | null,
+  bubblePosition: { left: number; top: number },
+  bubbleSize: { width: number; height: number },
+  placement: SpotlightPlacement
+) {
+  if (!targetRect) return '';
+
+  const bubbleAnchor = {
+    top: {
+      x: bubblePosition.left + bubbleSize.width / 2,
+      y: bubblePosition.top + bubbleSize.height,
+    },
+    right: {
+      x: bubblePosition.left,
+      y: bubblePosition.top + bubbleSize.height / 2,
+    },
+    bottom: {
+      x: bubblePosition.left + bubbleSize.width / 2,
+      y: bubblePosition.top,
+    },
+    left: {
+      x: bubblePosition.left + bubbleSize.width,
+      y: bubblePosition.top + bubbleSize.height / 2,
+    },
+  }[placement];
+
+  const targetAnchor = {
+    top: {
+      x: targetRect.left + targetRect.width / 2,
+      y: targetRect.top,
+    },
+    right: {
+      x: targetRect.left + targetRect.width,
+      y: targetRect.top + targetRect.height / 2,
+    },
+    bottom: {
+      x: targetRect.left + targetRect.width / 2,
+      y: targetRect.top + targetRect.height,
+    },
+    left: {
+      x: targetRect.left,
+      y: targetRect.top + targetRect.height / 2,
+    },
+  }[placement];
+
+  const controlPoint = {
+    x:
+      (bubbleAnchor.x + targetAnchor.x) / 2 +
+      (placement === 'left' ? -42 : placement === 'right' ? 42 : 0),
+    y:
+      (bubbleAnchor.y + targetAnchor.y) / 2 +
+      (placement === 'top' ? -38 : placement === 'bottom' ? 38 : 0),
+  };
+
+  return `M ${bubbleAnchor.x} ${bubbleAnchor.y} Q ${controlPoint.x} ${controlPoint.y} ${targetAnchor.x} ${targetAnchor.y}`;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }

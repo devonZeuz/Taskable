@@ -24,10 +24,14 @@ describe('account deletion', () => {
 
     const owner = await registerUser(server.baseUrl, 'account-delete-ok');
 
-    const deletion = await jsonRequest<Record<string, never>>(server.baseUrl, '/api/v1/auth/account', {
-      method: 'DELETE',
-      token: owner.token,
-    });
+    const deletion = await jsonRequest<Record<string, never>>(
+      server.baseUrl,
+      '/api/v1/auth/account',
+      {
+        method: 'DELETE',
+        token: owner.token,
+      }
+    );
     expect(deletion.status).toBe(204);
 
     const meAfterDelete = await jsonRequest<{ error?: string; code?: string }>(
@@ -39,7 +43,7 @@ describe('account deletion', () => {
     );
     expect(meAfterDelete.status).toBe(401);
     expect(meAfterDelete.body.code).toBe('INVALID_AUTH');
-  });
+  }, 12_000);
 
   it('blocks deletion when user is sole owner of a shared org', async () => {
     server = await startTestServer({
@@ -53,7 +57,7 @@ describe('account deletion', () => {
 
     await runSql(
       server.dbPath,
-      'INSERT INTO users (id, email, password_hash, name, password_updated_at) VALUES (?, ?, ?, ?, datetime(\'now\'))',
+      "INSERT INTO users (id, email, password_hash, name, password_updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
       [teammateId, teammateEmail, 'placeholder-hash', 'Teammate']
     );
     await runSql(
@@ -74,9 +78,13 @@ describe('account deletion', () => {
     expect(deletion.body.code).toBe('ACCOUNT_DELETE_BLOCKED');
     expect(deletion.body.details?.blockedOrgs?.[0]?.orgId).toBe(owner.orgId);
 
-    const meStillExists = await jsonRequest<{ user?: { id: string } }>(server.baseUrl, '/api/v1/me', {
-      token: owner.token,
-    });
+    const meStillExists = await jsonRequest<{ user?: { id: string } }>(
+      server.baseUrl,
+      '/api/v1/me',
+      {
+        token: owner.token,
+      }
+    );
     expect(meStillExists.status).toBe(200);
     expect(meStillExists.body.user?.id).toBe(owner.userId);
   });

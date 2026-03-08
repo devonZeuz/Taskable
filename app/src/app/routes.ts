@@ -9,6 +9,9 @@ import SignupView from './components/auth/SignupView';
 import VerifyView from './components/auth/VerifyView';
 import ForgotPasswordView from './components/auth/ForgotPasswordView';
 import ResetPasswordView from './components/auth/ResetPasswordView';
+import DemoView from './components/DemoView';
+import SecurityView from './components/SecurityView';
+import SupportView from './components/SupportView';
 
 function HydrationFallback() {
   return null;
@@ -61,6 +64,24 @@ export const router = createBrowserRouter([
       {
         path: 'welcome',
         Component: WelcomeView,
+        errorElement: routeErrorElement,
+        HydrateFallback: HydrationFallback,
+      },
+      {
+        path: 'demo',
+        Component: DemoView,
+        errorElement: routeErrorElement,
+        HydrateFallback: HydrationFallback,
+      },
+      {
+        path: 'security',
+        Component: SecurityView,
+        errorElement: routeErrorElement,
+        HydrateFallback: HydrationFallback,
+      },
+      {
+        path: 'support',
+        Component: SupportView,
         errorElement: routeErrorElement,
         HydrateFallback: HydrationFallback,
       },

@@ -63,7 +63,7 @@ export default function SignupView() {
       navigate(returnTo, { replace: true });
     } catch (error) {
       if (isCloudUnreachableError(error)) {
-        setMessage('Cloud API is unreachable. Check server status and VITE_API_URL.');
+        setMessage('Unable to reach the cloud service right now. Please try again in a moment.');
       } else if (
         error instanceof CloudRequestError &&
         error.status === 409 &&
@@ -103,7 +103,7 @@ export default function SignupView() {
   return (
     <AuthScaffold
       title="Create account"
-      description="Create a cloud workspace to sync tasks across web and desktop."
+      description="Create a cloud account to sync tasks across web, desktop, and team workspace views."
       footer={
         <p>
           Already have an account?{' '}
@@ -115,7 +115,7 @@ export default function SignupView() {
       }
       heroLead="Build with"
       heroTitle="Tareva"
-      heroSubtitle="Create your account once, then use the same planner and sync layer across every surface."
+      heroSubtitle="Set up one account, then use the same planner and sync layer across every surface."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-signup-form">
         <div className="space-y-2">

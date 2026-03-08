@@ -75,8 +75,6 @@ test('non-owner in cloud mode cannot access admin dashboard', async ({ page }) =
   await page.addInitScript(() => {
     window.localStorage.clear();
     window.localStorage.setItem('taskable:mode', 'cloud');
-    window.localStorage.setItem('taskable:cloud-token', 'member-token');
-    window.localStorage.setItem('taskable:cloud-refresh-token', 'member-refresh');
     window.localStorage.setItem('taskable:cloud-org-id', 'org_access');
     window.localStorage.setItem('taskable:cloud-user-id', 'usr_access');
     window.localStorage.setItem('taskable:cloud-auto-sync', 'false');

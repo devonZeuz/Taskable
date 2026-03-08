@@ -41,7 +41,7 @@ async function bootstrapDeterministicDnd(page: import('@playwright/test').Page) 
 }
 
 test('planner soft-snaps timeline to current time on initial load', async ({ page }) => {
-  await installFixedDate(page, '2026-02-21T13:30:00');
+  await installFixedDate(page, '2026-02-21T22:30:00');
   await bootstrapLocalMode(page);
   await page.addInitScript(() => {
     window.localStorage.setItem(
@@ -134,4 +134,41 @@ test('day labels stay pinned while timeline scrolls horizontally and tasks remai
   await expect(page.locator('[data-task-title="Germany Invoices"]').first()).toContainText(
     /11:00\s*-\s*12:00/
   );
+});
+
+test('timeline axis spans full day and supports unrestricted horizontal pan', async ({ page }) => {
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
+  await page.goto('/planner');
+  await expect(page.locator('.board-scroll')).toBeVisible();
+
+  const timelineMeta = await page.evaluate(() => {
+    const axis = document.querySelector('[data-time-axis="1"]') as HTMLElement | null;
+    const labels = axis
+      ? Array.from(axis.querySelectorAll('.planner-hour-label')).map((node) =>
+          (node.textContent ?? '').trim()
+        )
+      : [];
+    const board = document.querySelector('.board-scroll') as HTMLElement | null;
+    if (!axis || !board) return null;
+    const before = board.scrollLeft;
+    const maxLeft = Math.max(0, board.scrollWidth - board.clientWidth);
+    board.scrollLeft = maxLeft;
+    return {
+      labels,
+      before,
+      after: board.scrollLeft,
+      maxLeft,
+      endLabel: (axis.querySelector('.planner-hour-end-label')?.textContent ?? '').trim(),
+    };
+  });
+
+  expect(timelineMeta).not.toBeNull();
+  if (!timelineMeta) {
+    throw new Error('Timeline metadata missing.');
+  }
+  expect(timelineMeta.labels[0]).toBe('00:00');
+  expect(timelineMeta.labels.length).toBeGreaterThanOrEqual(24);
+  expect(timelineMeta.endLabel).toBe('24:00');
+  expect(timelineMeta.maxLeft).toBeGreaterThan(0);
+  expect(timelineMeta.after).toBeGreaterThan(timelineMeta.before);
 });

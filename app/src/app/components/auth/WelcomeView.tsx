@@ -1,12 +1,12 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ArrowRight } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useOnboarding } from '../../context/OnboardingContext';
 import {
   readLocalWorkdaySetupCompleted,
-  writeLocalTutorialCompleted,
   writeLocalWorkdaySetupPending,
 } from '../../services/authStorage';
+import { recordProductEvent } from '../../services/productAnalytics';
 import { Button } from '../ui/button';
 
 const PREVIEW_HOURS = [
@@ -101,6 +101,45 @@ const PREVIEW_CARDS: PreviewCard[] = [
     tone: 'idle',
   },
 ];
+
+const VALUE_PILLARS = [
+  {
+    title: 'Capture real work',
+    description:
+      'Start from inbox-style capture or Outlook-adjacent intake instead of rebuilding the day from memory.',
+  },
+  {
+    title: 'Plan against time',
+    description:
+      'Place work on a real timeline, see overload before it happens, and adjust the day by dragging work where it belongs.',
+  },
+  {
+    title: 'Execute visibly',
+    description:
+      'Move tasks through running, paused, and done states so the day reflects reality instead of stale plans.',
+  },
+] as const;
+
+const TRUST_LINKS = [
+  {
+    to: '/demo',
+    title: '90-second product tour',
+    description: 'Show the workflow quickly before asking someone to explore the app.',
+    testId: 'welcome-demo-link',
+  },
+  {
+    to: '/security',
+    title: 'Security and privacy summary',
+    description: 'Explain local-first usage, cloud auth, sync safety, and telemetry boundaries.',
+    testId: 'welcome-security-link',
+  },
+  {
+    to: '/support',
+    title: 'Support channel',
+    description: 'Give users one place to get help and one packet to copy when they hit an issue.',
+    testId: 'welcome-support-link',
+  },
+] as const;
 
 type CardTone = {
   background: string;
@@ -240,8 +279,19 @@ export default function WelcomeView() {
     []
   );
 
+  useEffect(() => {
+    recordProductEvent({
+      eventType: 'landing_viewed',
+      metadata: { path: '/welcome' },
+    });
+  }, []);
+
   const continueLocally = () => {
-    writeLocalTutorialCompleted(false);
+    recordProductEvent({
+      eventType: 'landing_continue_local_clicked',
+      mode: 'local',
+      metadata: { from: '/welcome' },
+    });
     if (!readLocalWorkdaySetupCompleted()) {
       writeLocalWorkdaySetupPending(true);
     }
@@ -250,11 +300,21 @@ export default function WelcomeView() {
   };
 
   const openLogin = () => {
+    recordProductEvent({
+      eventType: 'landing_sign_in_clicked',
+      mode: 'cloud',
+      metadata: { from: '/welcome' },
+    });
     setMode('cloud');
     navigate('/login', { state: { from: returnTo } });
   };
 
   const openSignup = () => {
+    recordProductEvent({
+      eventType: 'landing_sign_up_clicked',
+      mode: 'cloud',
+      metadata: { from: '/welcome' },
+    });
     setMode('cloud');
     navigate('/signup', { state: { from: returnTo } });
   };
@@ -262,7 +322,7 @@ export default function WelcomeView() {
   return (
     <div
       data-testid="welcome-screen"
-      className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-[var(--board-bg)] text-[var(--board-text)]"
+      className="relative flex min-h-[100dvh] flex-col overflow-x-hidden bg-[var(--board-bg)] text-[var(--board-text)]"
     >
       <style>{`
         @keyframes welcome-execute-sheen {
@@ -282,32 +342,69 @@ export default function WelcomeView() {
         }}
       />
 
-      <header className="relative z-10 flex items-center justify-between px-6 py-[22px] md:px-9">
-        <span className="text-[11.5px] font-semibold uppercase tracking-[0.16em] text-[var(--hud-muted)]">
+      <header className="relative z-10 flex items-center justify-between gap-4 px-6 py-[22px] md:px-9">
+        <span className="rounded-full px-3 py-1.5 text-[11.5px] font-semibold uppercase tracking-[0.16em] text-[var(--hud-muted)]">
           Tareva
         </span>
-        <span className="text-xs text-[var(--hud-muted)]">{topbarDate}</span>
+        <nav className="hidden items-center gap-1 rounded-full border border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface)_88%,transparent)] p-1 md:flex">
+          <Link
+            to="/demo"
+            className="rounded-full px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)] transition hover:bg-[var(--hud-surface-soft)] hover:text-[var(--hud-text)]"
+          >
+            Demo
+          </Link>
+          <Link
+            to="/security"
+            className="rounded-full px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)] transition hover:bg-[var(--hud-surface-soft)] hover:text-[var(--hud-text)]"
+          >
+            Security
+          </Link>
+          <Link
+            to="/support"
+            className="rounded-full px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)] transition hover:bg-[var(--hud-surface-soft)] hover:text-[var(--hud-text)]"
+          >
+            Support
+          </Link>
+        </nav>
+        <span className="hidden text-xs text-[var(--hud-muted)] md:block">{topbarDate}</span>
       </header>
 
-      <main className="relative z-10 mx-auto flex w-full max-w-[1440px] flex-1 flex-col items-center justify-center px-6 pb-10">
-        <h1 className="text-center text-[clamp(48px,6.2vw,80px)] font-bold leading-[0.96] tracking-[-0.045em]">
-          Plan less.
-          <br />
-          <span
-            className="bg-[linear-gradient(110deg,var(--hud-accent-soft)_20%,white_46%,var(--hud-accent-soft)_72%)] bg-[length:220%_100%] bg-clip-text text-transparent [animation:welcome-execute-sheen_4.6s_ease-in-out_infinite]"
-            style={{ WebkitBackgroundClip: 'text' }}
-          >
-            Execute
-          </span>{' '}
-          better.
-        </h1>
+      <main className="relative z-10 mx-auto flex w-full max-w-[1440px] flex-1 flex-col items-center gap-8 px-6 pb-10 pt-4">
+        <section className="max-w-[860px] text-center">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--hud-muted)]">
+            Execution-first planner
+          </p>
+          <h1 className="mt-4 text-center text-[clamp(48px,6.2vw,82px)] font-bold leading-[0.94] tracking-[-0.05em]">
+            Turn incoming work
+            <br />
+            into a{' '}
+            <span
+              className="bg-[linear-gradient(110deg,var(--hud-accent-soft)_20%,white_46%,var(--hud-accent-soft)_72%)] bg-[length:220%_100%] bg-clip-text text-transparent [animation:welcome-execute-sheen_4.6s_ease-in-out_infinite]"
+              style={{ WebkitBackgroundClip: 'text' }}
+            >
+              realistic day plan.
+            </span>
+          </h1>
 
-        <p className="mt-3 max-w-[460px] text-center text-[15px] leading-relaxed text-[var(--hud-muted)]">
-          A calm daily planner with live execution tracking, smart scheduling, and drift-aware
-          feedback.
-        </p>
+          <p className="mx-auto mt-4 max-w-[620px] text-center text-[16px] leading-relaxed text-[var(--hud-muted)]">
+            Tareva helps you capture tasks, place them on a real timeline, and run them with live
+            execution states so your plan reflects the day as it actually unfolds.
+          </p>
 
-        <div className="mb-10 mt-8 flex flex-wrap items-center justify-center gap-3 md:flex-nowrap">
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
+            <span className="rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-1">
+              Local-first
+            </span>
+            <span className="rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-1">
+              Cloud sync optional
+            </span>
+            <span className="rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-1">
+              Built for execution
+            </span>
+          </div>
+        </section>
+
+        <div className="relative flex flex-wrap items-start justify-center gap-3">
           <button
             type="button"
             data-testid="welcome-continue-local"
@@ -332,15 +429,26 @@ export default function WelcomeView() {
           >
             Create account
           </button>
+          <Button
+            asChild
+            type="button"
+            variant="ghost"
+            className="h-[52px] rounded-[16px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-6 text-[14px] font-semibold text-[var(--hud-text)] hover:bg-[var(--hud-surface-soft)]"
+          >
+            <Link to="/demo" data-testid="welcome-tour-link">
+              Watch the 90-second tour
+            </Link>
+          </Button>
         </div>
 
-        <p className="mb-8 text-center text-[14px] text-[var(--hud-muted)]">
-          Local mode keeps data on this device · Switch modes anytime in Settings
+        <p className="text-center text-[14px] text-[var(--hud-muted)]">
+          Local mode keeps data on this device. Cloud mode adds sync, team views, and admin
+          controls.
         </p>
 
         <section
           data-testid="welcome-planner-preview"
-          className="w-[min(1280px,82vw)] overflow-hidden rounded-[18px] border border-[color:var(--board-line)] bg-[var(--board-surface)] shadow-[0_-1px_0_rgba(255,255,255,0.06),0_24px_60px_rgba(0,0,0,0.5)]"
+          className="w-full max-w-[1280px] overflow-hidden rounded-[18px] border border-[color:var(--board-line)] bg-[var(--board-surface)] shadow-[0_-1px_0_rgba(255,255,255,0.06),0_24px_60px_rgba(0,0,0,0.5)]"
         >
           <div
             className="grid border-b border-[color:var(--board-line)] bg-[color:color-mix(in_srgb,var(--board-surface)_78%,transparent)]"
@@ -421,6 +529,62 @@ export default function WelcomeView() {
           </div>
         </section>
 
+        <section className="grid w-full max-w-[1280px] gap-4 lg:grid-cols-3">
+          {VALUE_PILLARS.map((pillar) => (
+            <article
+              key={pillar.title}
+              className="rounded-[22px] border border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface)_86%,transparent)] p-5"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
+                Core workflow
+              </p>
+              <h2 className="mt-2 text-[24px] font-semibold tracking-[-0.03em] text-[var(--hud-text)]">
+                {pillar.title}
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--hud-muted)]">
+                {pillar.description}
+              </p>
+            </article>
+          ))}
+        </section>
+
+        <section className="grid w-full max-w-[1280px] gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
+          <article className="rounded-[24px] border border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface-strong)_86%,transparent)] p-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
+              Value in the first session
+            </p>
+            <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.03em] text-[var(--hud-text)]">
+              Show the day, then shorten the path to value.
+            </h2>
+            <p className="mt-3 max-w-[720px] text-sm leading-relaxed text-[var(--hud-muted)]">
+              The landing page, demo tour, onboarding, support, and security summary should all tell the
+              same story: Tareva is not another static task list. It is a calmer way to plan and execute
+              real work.
+            </p>
+          </article>
+
+          <div className="space-y-4">
+            {TRUST_LINKS.map((link) => (
+              <Link
+                key={link.to}
+                to={link.to}
+                data-testid={link.testId}
+                className="block rounded-[22px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-5 transition hover:border-[color:var(--hud-accent-soft)] hover:bg-[var(--hud-surface-soft)]"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
+                  Product surface
+                </p>
+                <p className="mt-2 text-[19px] font-semibold tracking-[-0.02em] text-[var(--hud-text)]">
+                  {link.title}
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--hud-muted)]">
+                  {link.description}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+
         {isCloudAuthenticated ? (
           <Button
             type="button"
@@ -432,6 +596,23 @@ export default function WelcomeView() {
           </Button>
         ) : null}
       </main>
+
+      <footer className="relative z-10 border-t border-[color:var(--hud-border)] px-6 py-4 md:px-9">
+        <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-2 text-[12px] text-[var(--hud-muted)] md:flex-row md:items-center md:justify-between">
+          <p>Capture work, place it on a real day, and execute it visibly.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link to="/demo" className="transition hover:text-[var(--hud-text)]">
+              Demo
+            </Link>
+            <Link to="/security" className="transition hover:text-[var(--hud-text)]">
+              Security
+            </Link>
+            <Link to="/support" className="transition hover:text-[var(--hud-text)]">
+              Support
+            </Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

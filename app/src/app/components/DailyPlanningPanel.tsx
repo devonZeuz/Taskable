@@ -741,6 +741,7 @@ export default function DailyPlanningPanel({ tasks, scheduleTasks }: DailyPlanni
               type="button"
               size="sm"
               variant="outline"
+              data-testid="daily-planning-open-panel"
               onClick={() => setIsCollapsed(false)}
               className="h-7 ui-v1-radius-sm border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 text-[11px] text-[color:var(--hud-text)]"
             >

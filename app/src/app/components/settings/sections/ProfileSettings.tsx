@@ -9,7 +9,7 @@ import { CloudRequestError } from '../../../services/cloudApi';
 export default function ProfileSettings() {
   const { token, user, orgs, activeOrgId, deleteAccount } = useCloudSync();
   const {
-    preferences: { timezone, language },
+    preferences: { timezone },
     setPreference,
   } = useUserPreferences();
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
@@ -88,7 +88,7 @@ export default function ProfileSettings() {
 
       <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-          Profile Defaults
+          Regional Defaults
         </p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div className="space-y-1.5">
@@ -113,17 +113,6 @@ export default function ProfileSettings() {
             >
               Use system timezone
             </Button>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="profile-language">Language</Label>
-            <Input
-              id="profile-language"
-              value={language}
-              onChange={(event) => setPreference('language', event.target.value)}
-              placeholder="en"
-            />
-            <p className="text-[11px] text-[color:var(--hud-muted)]">Language packs are WIP.</p>
           </div>
         </div>
       </section>

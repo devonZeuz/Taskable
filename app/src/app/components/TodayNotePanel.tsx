@@ -31,13 +31,15 @@ export default function TodayNotePanel() {
   return (
     <section
       data-testid="today-note-panel"
-      className="ui-hud-panel ui-v1-radius-lg flex min-h-[176px] flex-col border border-[color:var(--hud-border)] p-3"
+      className="ui-hud-panel ui-v1-radius-lg flex min-h-[192px] flex-col border border-[color:var(--hud-border)] p-4"
     >
-      <div className="flex items-center gap-2 text-[12px] font-semibold text-[var(--hud-text)]">
+      <div className="flex items-center gap-2 text-[13px] font-semibold text-[var(--hud-text)]">
         <NotebookText className="size-4 text-[var(--hud-muted)]" />
         Today note
       </div>
-      <p className="mt-1 text-xs text-[var(--hud-muted)]">Keep one short intent for the day.</p>
+      <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--hud-muted)]">
+        Keep one short intent for the day.
+      </p>
       {isEditing || trimmedValue.length === 0 ? (
         <Textarea
           value={value}
@@ -48,14 +50,14 @@ export default function TodayNotePanel() {
             }
           }}
           placeholder="What must be true by end of day?"
-          className="mt-2 min-h-[92px] resize-none border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] text-[13px] text-[var(--hud-text)] placeholder:text-[var(--hud-muted)]"
+          className="mt-3 min-h-[96px] resize-none border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface-soft)_78%,transparent)] text-[13px] text-[var(--hud-text)] placeholder:text-[var(--hud-muted)]"
         />
       ) : (
         <button
           type="button"
           data-testid="today-note-chip"
           onClick={() => setIsEditing(true)}
-          className="mt-auto inline-flex w-full items-center justify-between gap-2 rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-chip-neutral-bg)] px-3 py-2 text-left text-[12px] text-[var(--hud-text)] hover:brightness-105"
+          className="mt-auto inline-flex w-full items-center justify-between gap-2 rounded-xl border border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-chip-neutral-bg)_88%,transparent)] px-3.5 py-2.5 text-left text-[12px] text-[var(--hud-text)]"
           aria-label="Edit today's note"
           title="Edit today's note"
         >

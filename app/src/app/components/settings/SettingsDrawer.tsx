@@ -21,7 +21,11 @@ import NotificationSettings from './sections/NotificationSettings';
 import ProfileSettings from './sections/ProfileSettings';
 import SecuritySettings from './sections/SecuritySettings';
 import TeamPermissionsSettings from './sections/TeamPermissionsSettings';
-import { OPEN_SETTINGS_EVENT, type OpenSettingsEventDetail } from '../../services/settingsBridge';
+import {
+  CLOSE_SETTINGS_EVENT,
+  OPEN_SETTINGS_EVENT,
+  type OpenSettingsEventDetail,
+} from '../../services/settingsBridge';
 
 const SETTINGS_DRAWER_OPEN_STORAGE_KEY = 'taskable:settings-drawer-open';
 const SETTINGS_ACTIVE_SECTION_STORAGE_KEY = 'taskable:settings-active-section';
@@ -113,9 +117,15 @@ export function SettingsDrawerInner({
       setOpen(true);
     };
 
+    const handleCloseSettings = () => {
+      setOpen(false);
+    };
+
     window.addEventListener(OPEN_SETTINGS_EVENT, handleOpenSettings);
+    window.addEventListener(CLOSE_SETTINGS_EVENT, handleCloseSettings);
     return () => {
       window.removeEventListener(OPEN_SETTINGS_EVENT, handleOpenSettings);
+      window.removeEventListener(CLOSE_SETTINGS_EVENT, handleCloseSettings);
     };
   }, []);
 
@@ -149,6 +159,7 @@ export function SettingsDrawerInner({
       </DialogTrigger>
 
       <DialogContent
+        data-testid="settings-drawer"
         className="h-[min(90vh,860px)] w-[min(1180px,96vw)] max-w-none gap-0 overflow-hidden border-[color:var(--hud-border)] bg-[var(--hud-surface)] text-[color:var(--hud-text)] ui-v1-elevation-3 backdrop-blur-xl sm:max-w-none"
         style={{ padding: 0 }}
       >

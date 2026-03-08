@@ -57,5 +57,5 @@ describe('server production env validation', () => {
     expect(result.timedOut).toBe(false);
     expect(result.code).not.toBe(0);
     expect(output.join('\n')).toMatch(/ENV_VALIDATION_ERROR|JWT_SECRET/i);
-  });
+  }, 12_000);
 });

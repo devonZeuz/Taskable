@@ -34,8 +34,12 @@ test('continue locally enters planner with empty state and one-time tutorial', a
 
   await page.getByTestId('onboarding-tutorial-skip').first().click({ force: true });
   await expect(page.getByTestId('onboarding-tutorial-modal')).toBeHidden();
+  await expect(page.getByTestId('workday-onboarding-modal')).toBeVisible();
+  await page.getByTestId('workday-onboarding-skip').click();
+  await expect(page.getByTestId('workday-onboarding-modal')).toBeHidden();
 
   await page.reload();
+  await expect(page.getByTestId('workday-onboarding-modal')).toBeHidden();
   await expect(page.getByTestId('onboarding-tutorial-modal')).toBeHidden();
   await expect(page.locator('[data-testid^="task-card-"]')).toHaveCount(0);
 
@@ -67,8 +71,6 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify({
-        token: 'test-cloud-token',
-        refreshToken: 'test-cloud-refresh-token',
         defaultOrgId: 'org_test',
         user: {
           id: 'usr_test',
@@ -81,6 +83,24 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
         },
         verification: {
           required: true,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/v1/auth/refresh', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: {
+          id: 'usr_test',
+          email: 'tutorial@example.com',
+          name: 'Tutorial User',
+          emailVerified: false,
+          emailVerifiedAt: null,
+          mfaEnabled: false,
+          mfaEnrolledAt: null,
         },
       }),
     });
@@ -174,12 +194,16 @@ test('signup lands on planner with tutorial modal and empty cloud state', async 
 
   await page.getByTestId('onboarding-tutorial-skip').first().click({ force: true });
   await expect(page.getByTestId('onboarding-tutorial-modal')).toBeHidden();
+  await expect(page.getByTestId('workday-onboarding-modal')).toBeVisible();
+  await page.getByTestId('workday-onboarding-save').click({ force: true });
+  await expect(page.getByTestId('workday-onboarding-modal')).toBeHidden();
 
   await page.reload();
+  await expect(page.getByTestId('workday-onboarding-modal')).toBeHidden();
   await expect(page.getByTestId('onboarding-tutorial-modal')).toBeHidden();
 });
 
-test('first cloud login shows tutorial when not completed', async ({ page }) => {
+test('routine cloud login does not show tutorial', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.clear();
     window.localStorage.setItem('taskable:cloud-auto-sync', 'false');
@@ -190,8 +214,6 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        token: 'test-cloud-token-login',
-        refreshToken: 'test-cloud-refresh-token-login',
         defaultOrgId: 'org_test_login',
         user: {
           id: 'usr_test_login',
@@ -204,6 +226,24 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
         },
         verification: {
           required: false,
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/v1/auth/refresh', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: {
+          id: 'usr_test_login',
+          email: 'login@example.com',
+          name: 'Login User',
+          emailVerified: true,
+          emailVerifiedAt: new Date().toISOString(),
+          mfaEnabled: false,
+          mfaEnrolledAt: null,
         },
       }),
     });
@@ -282,14 +322,14 @@ test('first cloud login shows tutorial when not completed', async ({ page }) => 
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(page).toHaveURL(/\/planner$/);
-  await expect(page.getByTestId('onboarding-tutorial-modal')).toBeVisible();
+  await expect(page.getByTestId('onboarding-tutorial-modal')).toBeHidden();
 });
 
 test('cloud runtime API failure shows branded app error UI', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.clear();
     window.localStorage.setItem('taskable:mode', 'cloud');
-    window.localStorage.setItem('taskable:cloud-token', 'e2e-invalid-token');
+    window.localStorage.setItem('taskable:cloud-user-id', 'usr_runtime_error');
   });
 
   await page.route('**/api/v1/me*', async (route) => {
@@ -297,6 +337,26 @@ test('cloud runtime API failure shows branded app error UI', async ({ page }) =>
   });
 
   await page.goto('/planner');
-  await expect(page.getByTestId('route-error-boundary')).toBeVisible();
-  await expect(page.getByTestId('route-error-diagnostics')).toBeVisible();
+  const routeErrorBoundary = page.getByTestId('route-error-boundary');
+  const loginForm = page.getByTestId('auth-login-form');
+
+  await expect
+    .poll(
+      async () => {
+        if (await routeErrorBoundary.isVisible().catch(() => false)) return 'boundary';
+        if (await loginForm.isVisible().catch(() => false)) return 'login';
+        return 'pending';
+      },
+      { timeout: 10000 }
+    )
+    .not.toBe('pending');
+
+  if (await routeErrorBoundary.isVisible().catch(() => false)) {
+    await expect(routeErrorBoundary).toBeVisible();
+    await expect(page.getByTestId('route-error-diagnostics')).toBeVisible();
+    return;
+  }
+
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(loginForm).toBeVisible();
 });

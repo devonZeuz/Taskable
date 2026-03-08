@@ -33,14 +33,14 @@ export default function VerifyView() {
   return (
     <AuthScaffold
       title="Verify your email"
-      description="Paste the verification token from your email to activate cloud account actions."
+      description="Paste the verification code from your email to activate your cloud account."
       heroLead="Trust layer for"
       heroTitle="Tareva"
-      heroSubtitle="Verification protects workspace access and keeps account recovery paths secure."
+      heroSubtitle="Verification protects workspace access and keeps recovery paths secure."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-verify-form">
         <div className="space-y-2">
-          <Label htmlFor="verify-token">Verification token</Label>
+          <Label htmlFor="verify-token">Verification code</Label>
           <Input
             id="verify-token"
             value={token}

@@ -24,7 +24,10 @@ afterAll(async () => {
 
 describe('admin auth middleware', () => {
   it('returns 401 for unauthenticated admin requests', async () => {
-    const response = await jsonRequest<{ code?: string }>(server!.baseUrl, '/api/v1/admin/overview');
+    const response = await jsonRequest<{ code?: string }>(
+      server!.baseUrl,
+      '/api/v1/admin/overview'
+    );
     expect(response.status).toBe(401);
     expect(response.body.code).toBe('AUTH_TOKEN_MISSING');
   });
@@ -39,9 +42,13 @@ describe('admin auth middleware', () => {
       [memberUser.orgId, memberUser.userId]
     );
 
-    const response = await jsonRequest<{ code?: string }>(server!.baseUrl, '/api/v1/admin/overview', {
-      token: memberUser.token,
-    });
+    const response = await jsonRequest<{ code?: string }>(
+      server!.baseUrl,
+      '/api/v1/admin/overview',
+      {
+        token: memberUser.token,
+      }
+    );
 
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('OWNER_ROLE_REQUIRED');

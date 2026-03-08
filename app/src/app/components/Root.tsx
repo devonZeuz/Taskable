@@ -40,6 +40,7 @@ import {
 import OnboardingTutorialModal from './onboarding/OnboardingTutorialModal';
 import { resolveExecutionModeV1Flag, resolveLayoutV1Flag } from '../flags';
 import { flushExecutionTelemetry } from '../services/executionTelemetry';
+import { recordProductEvent } from '../services/productAnalytics';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 
 const AUTO_START_SESSION_STORAGE_KEY = 'taskable:auto-start-fired';
@@ -74,6 +75,7 @@ export default function Root() {
                   <CompactModeHotkeys />
                   <PlannerAutoStartEngine />
                   <ExecutionTelemetryBridge plannerMode={plannerMode} />
+                  <ProductAnalyticsBridge plannerMode={plannerMode} />
                   <CloudSessionRuntimeGuard plannerMode={plannerMode} />
                   <CloudSyncErrorToasts />
                   <DevDemoDataButton plannerMode={plannerMode} isCompactRoute={isCompactRoute} />
@@ -100,6 +102,32 @@ export default function Root() {
       </DndProvider>
     </UserPreferencesProvider>
   );
+}
+
+function ProductAnalyticsBridge({ plannerMode }: { plannerMode: PlannerMode }) {
+  const location = useLocation();
+
+  useEffect(() => {
+    let eventType: 'planner_viewed' | 'team_viewed' | 'compact_viewed' | null = null;
+
+    if (location.pathname === '/planner') {
+      eventType = 'planner_viewed';
+    } else if (location.pathname === '/team') {
+      eventType = 'team_viewed';
+    } else if (location.pathname === '/compact') {
+      eventType = 'compact_viewed';
+    }
+
+    if (!eventType) return;
+
+    recordProductEvent({
+      eventType,
+      mode: plannerMode,
+      metadata: { path: location.pathname },
+    });
+  }, [location.pathname, plannerMode]);
+
+  return null;
 }
 
 function AppShellContainer({
@@ -675,7 +703,7 @@ function PlannerWorkdaySetupPrompt({
   plannerMode: PlannerMode;
   isCompactRoute: boolean;
 }) {
-  const { cloudUserId } = useOnboarding();
+  const { cloudUserId, hasCompletedTutorial } = useOnboarding();
   const { user } = useCloudSync();
   const { workday, setWorkday } = useWorkday();
   const resolvedCloudUserId = user?.id ?? cloudUserId ?? null;
@@ -688,6 +716,12 @@ function PlannerWorkdaySetupPrompt({
   const shouldShowPrompt = useMemo(() => {
     if (isCompactRoute) return false;
     if (dismissedForSession) return false;
+    const tutorialCompleted =
+      plannerMode === 'local'
+        ? hasCompletedTutorial
+        : Boolean(resolvedCloudUserId) &&
+          (hasCompletedTutorial || readCloudTutorialCompleted(resolvedCloudUserId));
+    if (!tutorialCompleted) return false;
     if (plannerMode === 'local') {
       return readLocalWorkdaySetupPending() && !readLocalWorkdaySetupCompleted();
     }
@@ -700,6 +734,7 @@ function PlannerWorkdaySetupPrompt({
     );
   }, [
     dismissedForSession,
+    hasCompletedTutorial,
     isCompactRoute,
     pendingCloudCompletion,
     plannerMode,
@@ -893,13 +928,7 @@ function PlannerOnboardingTutorial({
   const localWorkdaySetupPending = readLocalWorkdaySetupPending();
   const tutorialCompleted =
     plannerMode === 'cloud' ? hasCompletedTutorial || cloudTutorialCompleted : hasCompletedTutorial;
-  const workdaySetupStillPending =
-    plannerMode === 'local'
-      ? localWorkdaySetupPending && !localWorkdaySetupCompleted
-      : Boolean(resolvedCloudUserId) && cloudWorkdaySetupPending && !cloudWorkdaySetupCompleted;
-
   const shouldShowTutorial =
-    !workdaySetupStillPending &&
     (plannerMode === 'local'
       ? !tutorialCompleted
       : Boolean(resolvedCloudUserId) && cloudTutorialPending && !tutorialCompleted);
@@ -947,12 +976,12 @@ function DevDemoDataButton({
   const onLoadDemoData = () => {
     if (tasks.length > 0) {
       const shouldReplace = window.confirm(
-        'Load demo data? This replaces the current local task list in this window.'
+        'Load sample tasks? This replaces the current local task list in this window.'
       );
       if (!shouldReplace) return;
     }
     loadDemoData();
-    toast.success('Demo data loaded.');
+    toast.success('Sample tasks loaded.');
   };
 
   return (
@@ -963,7 +992,7 @@ function DevDemoDataButton({
         onClick={onLoadDemoData}
         className="pointer-events-auto ui-hud-btn h-8 ui-v1-radius-sm px-3 text-[11px]"
       >
-        Load demo data
+        Load sample tasks
       </Button>
     </div>
   );

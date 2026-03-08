@@ -96,9 +96,7 @@ export default function NotificationSettings() {
 
         <div className="mt-4 space-y-2">
           <div>
-            <p className="text-sm font-semibold text-[color:var(--hud-text)]">
-              Incoming lead times
-            </p>
+            <p className="text-sm font-semibold text-[color:var(--hud-text)]">Before start</p>
             <p className="text-[11px] text-[color:var(--hud-muted)]">
               Choose when Tareva reminds you before a task starts.
             </p>
@@ -144,8 +142,16 @@ export default function NotificationSettings() {
 
       <section className="ui-hud-section ui-v1-radius-md p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-          Execution Prompts
+          During A Task
         </p>
+        <div className="ui-hud-row mt-3 ui-v1-radius-sm px-3 py-2.5">
+          <p className="text-sm font-semibold text-[color:var(--hud-text)]">
+            5-minute remaining reminder
+          </p>
+          <p className="mt-1 text-[11px] text-[color:var(--hud-muted)]">
+            Tareva sends a reminder when a running task is 5 minutes from its planned end.
+          </p>
+        </div>
         <div className="ui-hud-row mt-3 flex items-center justify-between ui-v1-radius-sm px-3 py-2.5">
           <div>
             <p className="text-sm font-semibold text-[color:var(--hud-text)]">End-of-task prompt</p>
@@ -157,7 +163,7 @@ export default function NotificationSettings() {
         </div>
 
         <div className="mt-4 space-y-1.5">
-          <p className="text-sm font-semibold text-[color:var(--hud-text)]">Overrun follow-up</p>
+          <p className="text-sm font-semibold text-[color:var(--hud-text)]">Late-task follow-up</p>
           <p className="text-[11px] text-[color:var(--hud-muted)]">
             Send gentle reminders while a running task is late.
           </p>
@@ -183,16 +189,6 @@ export default function NotificationSettings() {
         </div>
       </section>
 
-      <section className="ui-hud-section ui-v1-radius-md p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-          Reminder Types
-        </p>
-        <ul className="mt-3 space-y-2 text-sm text-[color:var(--hud-text)]">
-          <li>Starting soon reminders (active)</li>
-          <li>Task end prompts with extension actions (active)</li>
-          <li>Running-late follow-up reminders (active)</li>
-        </ul>
-      </section>
     </div>
   );
 }

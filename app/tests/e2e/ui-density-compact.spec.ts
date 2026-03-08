@@ -55,7 +55,7 @@ test('compact density increases visible planner density without overflow', async
   const viewportWidth =
     compactPage.viewportSize()?.width ?? (await compactPage.evaluate(() => window.innerWidth));
 
-  for (const testId of ['toprail-nav-personal', 'toprail-nav-team', 'toprail-compact'] as const) {
+  for (const testId of ['toprail-nav-personal', 'toprail-compact'] as const) {
     const control = compactPage.getByTestId(testId);
     await expect(control).toBeVisible();
     const box = await control.boundingBox();
@@ -63,6 +63,17 @@ test('compact density increases visible planner density without overflow', async
     if (!box) continue;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(viewportWidth);
+  }
+
+  const optionalTeamControl = compactPage.getByTestId('toprail-nav-team');
+  if (await optionalTeamControl.count()) {
+    await expect(optionalTeamControl).toBeVisible();
+    const box = await optionalTeamControl.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(viewportWidth);
+    }
   }
 
   await compactContext.close();

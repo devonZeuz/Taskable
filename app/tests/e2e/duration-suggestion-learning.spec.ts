@@ -109,7 +109,8 @@ test('duration suggestion learns from completed task drift and updates helper', 
   const dialog = page.getByTestId('task-dialog-form');
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Advanced options' }).click();
-  await expect(dialog).toContainText('Based on your history (n=3)');
+  await expect(dialog).toContainText('Suggested duration');
+  await expect(dialog).toContainText('90 min');
 
   await dialog.getByRole('button', { name: 'Use suggested duration' }).click();
   await expect(dialog.getByLabel('Duration (minutes)')).toHaveValue('90');

@@ -35,10 +35,10 @@ export default function ResetPasswordView() {
   return (
     <AuthScaffold
       title="Set a new password"
-      description="Paste your reset token and choose a strong password."
+      description="Enter your reset token and choose a new password for your cloud account."
       heroLead="Secure your"
       heroTitle="Tareva"
-      heroSubtitle="Set a new password and continue with the same account and workspace."
+      heroSubtitle="Set a new password and continue with the same account, planner, and workspace."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-reset-form">
         <div className="space-y-2">

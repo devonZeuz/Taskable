@@ -7,6 +7,7 @@ interface CloudSessionSeed {
   token: string;
   refreshToken: string;
   orgId: string;
+  userId: string;
   email: string;
   password: string;
 }
@@ -32,6 +33,16 @@ interface CloudSyncTestHookState {
   realtimeState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
   syncTransport: 'disconnected' | 'polling' | 'sse';
   tokenAvailable: boolean;
+}
+
+function extractCookieValue(setCookieHeaders: string[], cookieName: string): string | null {
+  for (const header of setCookieHeaders) {
+    const [firstSegment] = header.split(';');
+    const [name, ...valueParts] = firstSegment.split('=');
+    if (name?.trim() !== cookieName) continue;
+    return valueParts.join('=').trim();
+  }
+  return null;
 }
 
 async function dismissTutorialIfVisible(page: Page) {
@@ -67,44 +78,78 @@ async function registerCloudUser(
   expect(response.ok(), await response.text()).toBeTruthy();
 
   const payload = (await response.json()) as {
-    token?: string;
-    accessToken?: string;
-    refreshToken?: string;
     defaultOrgId?: string;
+    user?: { id?: string };
   };
 
-  const token = payload.token ?? payload.accessToken;
-  if (!token || !payload.refreshToken || !payload.defaultOrgId) {
-    throw new Error('Cloud registration payload is missing session tokens or default org id.');
+  const setCookieHeaders = response
+    .headersArray()
+    .filter((header) => header.name.toLowerCase() === 'set-cookie')
+    .map((header) => header.value);
+  const accessCookie = extractCookieValue(setCookieHeaders, 'taskable_access_token');
+  const refreshCookie = extractCookieValue(setCookieHeaders, 'taskable_refresh_token');
+  if (!accessCookie || !refreshCookie || !payload.defaultOrgId) {
+    throw new Error('Cloud registration payload is missing auth cookies or default org id.');
+  }
+  const token = `taskable_access_token=${accessCookie}; taskable_refresh_token=${refreshCookie}`;
+
+  let userId = payload.user?.id ?? '';
+  if (!userId) {
+    const meResponse = await request.get(`${API_URL}/api/v1/me`, {
+      headers: withAuth(token),
+    });
+    expect(meResponse.ok(), await meResponse.text()).toBeTruthy();
+    const mePayload = (await meResponse.json()) as { user?: { id?: string } };
+    userId = mePayload.user?.id ?? '';
+  }
+  if (!userId) {
+    throw new Error('Cloud registration payload is missing user id.');
   }
 
   return {
     token,
-    refreshToken: payload.refreshToken,
+    refreshToken: refreshCookie,
     orgId: payload.defaultOrgId,
+    userId,
     email,
     password,
   };
 }
 
-function withAuth(token: string) {
-  return {
-    Authorization: `Bearer ${token}`,
-  };
+function withAuth(token: string): Record<string, string> {
+  if (token.includes('=')) {
+    return { Cookie: token };
+  }
+  return { Authorization: `Bearer ${token}` };
 }
 
 async function createSeededPage(browser: Browser, seed: CloudSessionSeed): Promise<SeededPage> {
   const context = await browser.newContext({
     storageState: {
-      cookies: [],
+      cookies: seed.token
+        .split(';')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+          const [name, ...valueParts] = entry.split('=');
+          return {
+            name,
+            value: valueParts.join('='),
+            domain: '127.0.0.1',
+            path: '/',
+            httpOnly: true,
+            secure: false,
+            sameSite: 'Lax' as const,
+            expires: Math.floor(Date.now() / 1000) + 3600,
+          };
+        }),
       origins: [
         {
           origin: APP_ORIGIN,
           localStorage: [
             { name: 'taskable:mode', value: 'cloud' },
-            { name: 'taskable:cloud-token', value: seed.token },
-            { name: 'taskable:cloud-refresh-token', value: seed.refreshToken },
             { name: 'taskable:cloud-org-id', value: seed.orgId },
+            { name: 'taskable:cloud-user-id', value: seed.userId },
             { name: 'taskable:cloud-auto-sync', value: 'true' },
           ],
         },
@@ -116,12 +161,10 @@ async function createSeededPage(browser: Browser, seed: CloudSessionSeed): Promi
   await expect
     .poll(async () =>
       page.evaluate(() => ({
-        token: window.localStorage.getItem('taskable:cloud-token'),
         orgId: window.localStorage.getItem('taskable:cloud-org-id'),
       }))
     )
     .toMatchObject({
-      token: seed.token,
       orgId: seed.orgId,
     });
   await expect(page.getByTestId('add-task-trigger').first()).toBeVisible();
@@ -314,12 +357,11 @@ test('supports re-login after signup with case-insensitive + trimmed email looku
   });
   expect(response.ok(), await response.text()).toBeTruthy();
   const payload = (await response.json()) as {
-    token?: string;
-    accessToken?: string;
-    refreshToken?: string;
+    user?: { id?: string };
   };
-  expect(payload.accessToken ?? payload.token).toBeTruthy();
-  expect(payload.refreshToken).toBeTruthy();
+  expect(payload.user?.id).toBeTruthy();
+  expect('accessToken' in payload).toBe(false);
+  expect('refreshToken' in payload).toBe(false);
 });
 
 test('deduplicates end prompt acknowledgements for the same running task', async ({ request }) => {
@@ -478,4 +520,59 @@ test('enforces presence locks and supports admin takeover', async ({ request }) 
     }
   );
   expect(adminUpdate.ok(), await adminUpdate.text()).toBeTruthy();
+});
+
+test('persists theme in cloud mode and applies it across separate browser contexts', async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  const session = await registerCloudUser(request);
+
+  const pageASeed = await createSeededPage(browser, session);
+  const pageBSeed = await createSeededPage(browser, session);
+  const pageA = pageASeed.page;
+  const pageB = pageBSeed.page;
+
+  try {
+    await waitForCloudReady(pageA, session.orgId);
+    await waitForCloudReady(pageB, session.orgId);
+
+    await pageA.evaluate(() => {
+      window.localStorage.setItem('taskable:app-theme', 'white');
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'taskable:app-theme',
+          newValue: 'white',
+        })
+      );
+    });
+
+    await expect
+      .poll(
+        async () => {
+          const meResponse = await request.get(`${API_URL}/api/v1/me`, {
+            headers: withAuth(session.token),
+          });
+          if (!meResponse.ok()) return null;
+          const payload = (await meResponse.json()) as { user?: { appTheme?: string | null } };
+          return payload.user?.appTheme ?? null;
+        },
+        { timeout: 20_000 }
+      )
+      .toBe('white');
+
+    await pageB.reload();
+    await waitForCloudReady(pageB, session.orgId);
+    await expect
+      .poll(
+        async () =>
+          pageB.evaluate(() => document.documentElement.getAttribute('data-app-theme') ?? null),
+        { timeout: 20_000 }
+      )
+      .toBe('white');
+  } finally {
+    await pageASeed.context.close();
+    await pageBSeed.context.close();
+  }
 });

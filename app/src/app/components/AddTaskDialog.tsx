@@ -633,22 +633,23 @@ export default function AddTaskDialog({
         )}
       </DialogTrigger>
       <DialogContent
-        className="max-h-[88vh] max-w-[calc(100vw-1.5rem)] overflow-hidden ui-v1-radius-md border-[color:var(--hud-border)] bg-[var(--hud-surface)] ui-v1-elevation-3 backdrop-blur-md sm:max-w-[760px]"
+        data-testid="task-dialog-content"
+        className="max-h-[90vh] max-w-[calc(100vw-1.5rem)] overflow-hidden ui-v1-radius-lg border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface)_96%,transparent)] ui-v1-elevation-3 backdrop-blur-md sm:max-w-[820px]"
         style={{ padding: 0 }}
       >
-        <DialogHeader className="gap-1 border-b border-[color:var(--hud-border)] px-4 py-3 pr-12">
-          <DialogTitle className="text-[17px] tracking-[-0.02em] text-[color:var(--hud-text)]">
+        <DialogHeader className="gap-1.5 border-b border-[color:color-mix(in_srgb,var(--hud-border)_62%,transparent)] px-5 py-4 pr-12">
+          <DialogTitle className="text-[19px] tracking-[-0.025em] text-[color:var(--hud-text)]">
             {editTask ? 'Update Task' : 'Create Task'}
           </DialogTitle>
-          <DialogDescription className="text-[12px] text-[color:var(--hud-muted)]">
-            Compact planner editor.
+          <DialogDescription className="text-[13px] leading-relaxed text-[color:var(--hud-muted)]">
+            Plan the task, then place it with intention.
           </DialogDescription>
         </DialogHeader>
 
         <form
           data-testid="task-dialog-form"
           onSubmit={handleSubmit}
-          className="max-h-[calc(88vh-82px)] space-y-2.5 overflow-y-auto px-4 py-3"
+          className="max-h-[calc(90vh-92px)] space-y-3.5 overflow-y-auto px-5 py-4"
         >
           {!canWriteTasks && (
             <Alert variant="destructive">
@@ -779,7 +780,10 @@ export default function AddTaskDialog({
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div
+            data-testid="task-scheduling-section"
+            className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+          >
             <div className="space-y-1.5">
               <Label htmlFor="day">Day</Label>
               <Popover>
@@ -829,7 +833,7 @@ export default function AddTaskDialog({
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="duration">Duration (minutes)</Label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] sm:items-stretch">
-                <div className="w-full ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3 sm:flex sm:w-full sm:flex-col">
+                <div className="w-full ui-v1-radius-md border border-[color:color-mix(in_srgb,var(--hud-border)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--hud-surface-soft)_74%,transparent)] p-3.5 sm:flex sm:w-full sm:flex-col">
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
@@ -891,7 +895,10 @@ export default function AddTaskDialog({
                   </div>
                 </div>
 
-                <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+                <div
+                  data-testid="task-type-section"
+                  className="ui-v1-radius-md border border-[color:color-mix(in_srgb,var(--hud-border)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--hud-surface-soft)_74%,transparent)] p-3.5"
+                >
                   <Label className="text-[12px] font-semibold text-[color:var(--hud-muted)]">
                     Task Type
                   </Label>
@@ -1075,7 +1082,7 @@ export default function AddTaskDialog({
           </div>
 
           {shouldCheckSchedule && (
-            <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2.5 text-[11px] text-[color:var(--hud-muted)]">
+            <div className="ui-hud-row ui-v1-radius-md px-3.5 py-3 text-[11px] text-[color:var(--hud-muted)]">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[12px] font-semibold text-[color:var(--hud-text)]">
@@ -1129,7 +1136,7 @@ export default function AddTaskDialog({
             <button
               type="button"
               onClick={() => setShowAdvanced((prev) => !prev)}
-              className="flex h-9 w-full items-center justify-between ui-v1-radius-sm border border-dashed border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] px-3 py-2 text-sm font-medium text-[color:var(--hud-muted)] transition-colors hover:text-[color:var(--hud-text)]"
+              className="ui-hud-row flex h-10 w-full items-center justify-between ui-v1-radius-md border-dashed px-3.5 py-2 text-sm font-medium text-[color:var(--hud-muted)] transition-colors hover:text-[color:var(--hud-text)]"
             >
               <span>Advanced options</span>
               {showAdvanced ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
@@ -1137,9 +1144,9 @@ export default function AddTaskDialog({
           )}
 
           {(showAdvanced || !layoutV1Enabled) && (
-            <div className="space-y-3 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+            <div className="space-y-3.5 ui-v1-radius-md border border-[color:color-mix(in_srgb,var(--hud-border)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--hud-surface-soft)_68%,transparent)] p-4">
               {formData.type === 'large' && (
-                <div className="space-y-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2.5">
+                <div className="space-y-2.5 ui-v1-radius-md border border-[color:color-mix(in_srgb,var(--hud-border)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--hud-surface)_84%,transparent)] px-3.5 py-3">
                   <Label>Subtasks</Label>
                   <div className="flex gap-2">
                     <Input
@@ -1186,7 +1193,7 @@ export default function AddTaskDialog({
                 </div>
               )}
 
-              <div className="flex items-center justify-between ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-2">
+              <div className="flex items-center justify-between ui-v1-radius-md border border-[color:color-mix(in_srgb,var(--hud-border)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--hud-surface)_84%,transparent)] px-3.5 py-2.5">
                 <div>
                   <p className="text-sm font-semibold">Schedule later</p>
                   <p className="text-xs text-muted-foreground">Keep in inbox/backlog.</p>
@@ -1214,7 +1221,7 @@ export default function AddTaskDialog({
                 (taskSuggestions.suggestedWindow ||
                   taskSuggestions.suggestedDurationMinutes !== null ||
                   durationProfileSuggestion.suggestedDurationMinutes !== null) && (
-                  <div className="ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-3">
+                  <div className="ui-v1-radius-md border border-[color:color-mix(in_srgb,var(--hud-border)_54%,transparent)] bg-[color:color-mix(in_srgb,var(--hud-surface)_84%,transparent)] px-3.5 py-3.5">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[13px] font-semibold text-[color:var(--hud-text)]">
                         Smart helpers
@@ -1294,9 +1301,10 @@ export default function AddTaskDialog({
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex justify-end gap-2.5 pt-2">
             <Button
               type="button"
+              data-testid="task-dialog-cancel"
               variant="outline"
               className="h-9 ui-v1-radius-sm border-[color:var(--hud-border)]"
               onClick={() => {

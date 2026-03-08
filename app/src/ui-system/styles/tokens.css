@@ -1,7 +1,7 @@
 .ui-system-v1 {
-  --ui-font-scale: 0.8125;
-  --ui-space-scale: 0.8125;
-  --ui-control-scale: 0.8125;
+  --ui-font-scale: 0.875;
+  --ui-space-scale: 0.875;
+  --ui-control-scale: 0.875;
 
   --ui-v1-space-0: 0px;
   --ui-v1-space-1: calc(4px * var(--ui-space-scale));
@@ -24,8 +24,8 @@
   --ui-v1-font-display: calc(48px * var(--ui-font-scale));
   --ui-v1-line-tight: 1.05;
   --ui-v1-line-compact: 1.2;
-  --ui-v1-line-normal: 1.4;
-  --ui-v1-line-relaxed: 1.55;
+  --ui-v1-line-normal: 1.45;
+  --ui-v1-line-relaxed: 1.6;
   --ui-v1-weight-regular: 400;
   --ui-v1-weight-medium: 500;
   --ui-v1-weight-semibold: 600;
@@ -40,9 +40,9 @@
   --ui-v1-radius-lg: 18px;
   --ui-v1-radius-xl: 24px;
   --ui-v1-planner-header-offset: 86px;
-  --ui-v1-control-h-sm: calc(28px * var(--ui-control-scale));
-  --ui-v1-control-h-md: calc(32px * var(--ui-control-scale));
-  --ui-v1-control-h-lg: calc(36px * var(--ui-control-scale));
+  --ui-v1-control-h-sm: calc(30px * var(--ui-control-scale));
+  --ui-v1-control-h-md: calc(34px * var(--ui-control-scale));
+  --ui-v1-control-h-lg: calc(40px * var(--ui-control-scale));
   --ui-v1-border-width: 1px;
   --ui-v1-elevation-0: none;
   --ui-v1-elevation-1: 0 6px 14px rgba(0, 0, 0, 0.18);

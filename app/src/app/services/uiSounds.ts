@@ -143,6 +143,41 @@ export function playCalendarSnapSound() {
   }
 }
 
+export function playReminderChime() {
+  const context = getAudioContext();
+  if (!context) {
+    playFallbackTone();
+    return;
+  }
+
+  if (context.state === 'suspended') {
+    void context.resume();
+  }
+
+  const start = context.currentTime;
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(0.12, start + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.52);
+  gain.connect(context.destination);
+
+  const first = context.createOscillator();
+  first.type = 'sine';
+  first.frequency.setValueAtTime(880, start);
+  first.frequency.exponentialRampToValueAtTime(1320, start + 0.18);
+  first.connect(gain);
+  first.start(start);
+  first.stop(start + 0.24);
+
+  const second = context.createOscillator();
+  second.type = 'sine';
+  second.frequency.setValueAtTime(1174, start + 0.12);
+  second.frequency.exponentialRampToValueAtTime(1568, start + 0.3);
+  second.connect(gain);
+  second.start(start + 0.12);
+  second.stop(start + 0.42);
+}
+
 if (typeof window !== 'undefined') {
   installUnlockListener();
 }

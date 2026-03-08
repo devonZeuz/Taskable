@@ -48,8 +48,6 @@ import { getNextTimelineZoom } from '../services/timelineZoom';
 import PlannerTopRail from './PlannerTopRail';
 import { resolveExecutionModeV1Flag, resolveLayoutV1Flag } from '../flags';
 import { desktopToggleCompact, isDesktopShell } from '../services/desktopShell';
-
-const PERSONAL_NOW_SNAP_SESSION_KEY = 'taskable:now-snap:personal';
 export default function PersonalView() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -480,15 +478,6 @@ export default function PersonalView() {
     if (hasAutoNowSnapRef.current) return;
     if (hasUserScrolledRef.current) return;
 
-    try {
-      if (window.sessionStorage.getItem(PERSONAL_NOW_SNAP_SESSION_KEY) === '1') {
-        hasAutoNowSnapRef.current = true;
-        return;
-      }
-    } catch {
-      // ignore session storage errors
-    }
-
     let attempts = 0;
     let retryTimer: number | null = null;
     const trySnap = () => {
@@ -503,11 +492,6 @@ export default function PersonalView() {
       const snapped = scrollToNow('auto');
       if (snapped || attempts >= 20) {
         hasAutoNowSnapRef.current = true;
-        try {
-          window.sessionStorage.setItem(PERSONAL_NOW_SNAP_SESSION_KEY, '1');
-        } catch {
-          // ignore session storage errors
-        }
         if (retryTimer !== null) {
           window.clearInterval(retryTimer);
         }
@@ -667,14 +651,14 @@ export default function PersonalView() {
       <div className="flex min-h-0 flex-1 flex-col">
         <div
           className={`min-h-0 min-w-0 flex-1 ${
-            layoutV1Enabled ? 'flex gap-3 px-3 pb-3 md:gap-4 md:px-5 md:pb-5' : 'flex flex-col'
+            layoutV1Enabled ? 'flex gap-4 px-4 pb-4 md:gap-5 md:px-6 md:pb-6' : 'flex flex-col'
           }`}
         >
           {layoutV1Enabled ? (
             <aside
               data-collapsed={sidebarCollapsed ? 'true' : 'false'}
-              className={`relative flex min-h-0 shrink-0 flex-col gap-3 transition-[width] duration-200 ${
-                sidebarCollapsed ? 'planner-sidebar w-[72px]' : 'planner-sidebar w-[300px]'
+              className={`relative flex min-h-0 shrink-0 flex-col gap-4 transition-[width] duration-200 ${
+                sidebarCollapsed ? 'planner-sidebar w-[80px]' : 'planner-sidebar w-[320px]'
               }`}
             >
               <div className="ui-hud-panel flex items-center justify-between ui-v1-radius-md px-2 py-2">
@@ -758,7 +742,7 @@ export default function PersonalView() {
               {sidebarCollapsed && sidebarPanel && (
                 <div
                   data-testid="layoutv1-sidebar-panel"
-                  className="planner-sidebar-panel absolute left-full top-0 z-20 ml-2 flex h-full w-[300px] min-h-0 flex-col gap-3"
+                  className="planner-sidebar-panel absolute left-full top-0 z-20 ml-3 flex h-full w-[320px] min-h-0 flex-col gap-4"
                 >
                   <div className="ui-hud-panel flex items-center justify-between ui-v1-radius-md px-3 py-2">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
@@ -817,16 +801,16 @@ export default function PersonalView() {
               >
                 <div
                   ref={stickyHeaderRef}
-                  className="sticky top-0 z-10 flex border-b border-[color:var(--board-line)] bg-[var(--board-surface)]/92 backdrop-blur-sm"
+                  className="sticky top-0 z-10 flex border-b border-[color:var(--board-line)] bg-[color:color-mix(in_srgb,var(--board-surface)_88%,transparent)] backdrop-blur-md"
                 >
-                  <div className="sticky left-0 z-[20] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-surface)] md:w-[196px]" />
+                  <div className="sticky left-0 z-[20] w-[148px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[color:color-mix(in_srgb,var(--board-surface)_88%,transparent)] md:w-[208px]" />
                   <div
                     className="relative"
                     style={{ width: `${gridWidth}px` }}
                     data-time-axis="1"
                     onWheel={handleTimeAxisWheel}
                   >
-                    <div className="grid h-[46px] items-center" style={{ gridTemplateColumns }}>
+                    <div className="grid h-[50px] items-center" style={{ gridTemplateColumns }}>
                       {timeColumns.map((col) => {
                         if (col.isGap) {
                           return <div key={col.key} className="h-full bg-transparent" />;
@@ -851,7 +835,7 @@ export default function PersonalView() {
                         );
                       })}
                     </div>
-                    <div className="pointer-events-none absolute right-2 top-0 flex h-[46px] items-center">
+                    <div className="pointer-events-none absolute right-2 top-0 flex h-[50px] items-center">
                       <span
                         className="planner-hour-end-label text-[10px] font-semibold md:text-[11px]"
                         style={{ color: 'var(--hour-end-highlight)' }}
@@ -859,12 +843,12 @@ export default function PersonalView() {
                         {endLabel}
                       </span>
                     </div>
-                    <div className="pointer-events-none absolute right-14 top-0 flex h-[46px] items-center">
+                    <div className="pointer-events-none absolute right-14 top-0 flex h-[50px] items-center">
                       <button
                         type="button"
                         data-testid="time-axis-now-pill-personal"
                         onClick={() => scrollToNow('smooth')}
-                        className="planner-now-pill pointer-events-auto rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-1 text-[10px] font-semibold text-[color:var(--hud-text)] md:text-[11px]"
+                        className="planner-now-pill pointer-events-auto rounded-full border border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface)_96%,transparent)] px-3 py-1.5 text-[10px] font-semibold text-[color:var(--hud-text)] md:text-[11px]"
                       >
                         Now
                       </button>
@@ -878,20 +862,20 @@ export default function PersonalView() {
                     ref={day.isToday ? todayRowRef : undefined}
                     data-day-row={day.date}
                     data-day-kind={day.isToday ? 'today' : 'other'}
-                    className="planner-day-row flex min-h-[134px] border-b border-[color:var(--board-line)] md:min-h-[174px]"
+                    className="planner-day-row flex min-h-[142px] border-b border-[color:var(--board-line)] md:min-h-[182px]"
                   >
                     <div
                       data-testid="day-label-cell"
-                      className="planner-day-label-cell sticky left-0 z-[8] w-[140px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[var(--board-bg)] py-5 pl-3 pr-2 text-left md:w-[196px] md:py-6 md:pl-4 md:pr-3"
+                      className="planner-day-label-cell sticky left-0 z-[8] w-[148px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[color:color-mix(in_srgb,var(--board-bg)_96%,transparent)] py-6 pl-4 pr-3 text-left md:w-[208px] md:py-7 md:pl-5 md:pr-4"
                     >
                       <p
-                        className="planner-day-title text-[21px] leading-[1.02] font-bold tracking-[-0.03em] md:text-[34px]"
+                        className="planner-day-title text-[22px] font-bold leading-[1.02] tracking-[-0.035em] md:text-[36px]"
                         style={{ color: 'var(--board-text)' }}
                       >
                         {day.label.title}
                       </p>
                       <p
-                        className="planner-day-subtitle mt-2 text-[11px] leading-none font-semibold uppercase tracking-[0.06em] md:text-[13px]"
+                        className="planner-day-subtitle mt-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--board-muted)] md:text-[13px]"
                         style={{ color: 'var(--board-muted)' }}
                       >
                         {day.label.subtitle}

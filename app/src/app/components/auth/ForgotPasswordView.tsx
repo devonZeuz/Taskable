@@ -32,10 +32,10 @@ export default function ForgotPasswordView() {
   return (
     <AuthScaffold
       title="Reset your password"
-      description="Request a reset token. Then use the reset page to set a new password."
+      description="Request a password reset email for your cloud account."
       heroLead="Recovery for"
       heroTitle="Tareva"
-      heroSubtitle="Use the reset flow to recover access without losing planner data or workspace history."
+      heroSubtitle="Recover account access without losing your planner history or workspace access."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-forgot-form">
         <div className="space-y-2">
@@ -59,7 +59,7 @@ export default function ForgotPasswordView() {
           disabled={submitting}
           className="ui-hud-btn-accent h-11 w-full rounded-xl"
         >
-          {submitting ? 'Requesting...' : 'Request reset token'}
+          {submitting ? 'Requesting...' : 'Send reset email'}
         </Button>
       </form>
 

@@ -349,7 +349,7 @@ export default function IntegrationSettings() {
             <p className="text-xs text-[color:var(--hud-muted)]">No workspace selected.</p>
           )}
           <p className="text-[11px] text-[color:var(--hud-muted)]">
-            Different login = different workspace data unless that user is invited into the same
+            Each account sees its own workspace data unless it is invited into the same shared
             workspace.
           </p>
         </div>
@@ -393,15 +393,14 @@ export default function IntegrationSettings() {
               setPrefs((prev) => ({ ...prev, outlookEnabled: checked }))
             }
           />
-          <IntegrationRow
-            title="Calendar sync"
-            subtitle="Calendar event overlay and sync controls are WIP."
-            checked={prefs.calendarEnabled}
-            disabled={!canManageIntegrations}
-            onCheckedChange={(checked) =>
-              setPrefs((prev) => ({ ...prev, calendarEnabled: checked }))
-            }
-          />
+        </div>
+        <div className="mt-3 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-soft)] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+            Additional integrations
+          </p>
+          <p className="mt-1 text-xs text-[color:var(--hud-muted)]">
+            New workspace connections will appear here when they are available for this environment.
+          </p>
         </div>
         {!canManageIntegrations && token && (
           <p className="mt-2 text-[11px] text-[color:var(--hud-warning-text)]">

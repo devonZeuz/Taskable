@@ -24,7 +24,7 @@ interface SettingsNavProps {
 
 export default function SettingsNav({ sections, activeSection, onSelect }: SettingsNavProps) {
   return (
-    <nav className="flex flex-col gap-1.5 p-4" aria-label="Settings sections">
+    <nav className="flex flex-col gap-2 p-4" aria-label="Settings sections">
       {sections.map((section) => {
         const isActive = section.key === activeSection;
         return (
@@ -33,16 +33,16 @@ export default function SettingsNav({ sections, activeSection, onSelect }: Setti
             type="button"
             variant="ghost"
             onClick={() => onSelect(section.key)}
-            className={`h-auto w-full flex-col items-start justify-start gap-1 ui-v1-radius-sm px-3.5 py-3 text-left whitespace-normal ${
+            className={`h-auto w-full flex-col items-start justify-start gap-2 ui-v1-radius-md px-4 py-4 text-left whitespace-normal transition-all ${
               isActive
-                ? 'border border-[color:var(--hud-accent-soft)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)]'
-                : 'border border-transparent text-[color:var(--hud-text)] opacity-80 hover:border-[color:var(--hud-border)] hover:bg-[var(--hud-surface-strong)] hover:opacity-100'
+                ? 'border border-[color:color-mix(in_srgb,var(--hud-accent-soft)_72%,var(--hud-border))] bg-[color:color-mix(in_srgb,var(--hud-surface)_92%,transparent)] text-[color:var(--hud-text)] shadow-[0_12px_28px_rgba(0,0,0,0.14)]'
+                : 'border border-transparent bg-transparent text-[color:var(--hud-text)] opacity-84 hover:bg-[color:color-mix(in_srgb,var(--hud-surface)_72%,transparent)] hover:opacity-100'
             }`}
           >
-            <span className="block w-full text-[14px] font-semibold leading-none">
+            <span className="block w-full text-[14px] font-semibold tracking-[-0.01em]">
               {section.label}
             </span>
-            <span className="block w-full truncate text-[11px] font-normal leading-[1.2] text-[color:var(--hud-muted)]">
+            <span className="block w-full text-[11px] font-normal leading-[1.45] text-[color:var(--hud-muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
               {section.description}
             </span>
           </Button>

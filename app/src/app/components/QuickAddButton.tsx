@@ -23,7 +23,10 @@ export default function QuickAddButton({
 
   return (
     <>
-      <div className="group relative flex h-full w-full items-center justify-center">
+      <div
+        data-testid={`quick-add-cell-${day}-${time}`}
+        className="group relative flex h-full w-full items-center justify-center"
+      >
         <div className="pointer-events-none absolute inset-1 rounded-[12px] bg-white/[0.02] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:bg-white/[0.08]" />
         <Button
           variant="ghost"

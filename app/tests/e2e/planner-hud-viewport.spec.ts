@@ -3,12 +3,14 @@ import { bootstrapLocalMode } from './storageBootstrap';
 
 const HUD_CONTROL_TEST_IDS = [
   'toprail-nav-personal',
-  'toprail-nav-team',
   'toprail-compact',
   'toprail-settings',
 ] as const;
 
 const VIEWPORTS = [
+  { width: 1920, height: 1080 },
+  { width: 1440, height: 900 },
+  { width: 1280, height: 800 },
   { width: 1366, height: 768 },
   { width: 1200, height: 800 },
 ] as const;
@@ -37,6 +39,18 @@ for (const viewport of VIEWPORTS) {
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(viewportWidth);
       expect(box.y).toBeGreaterThanOrEqual(0);
+    }
+
+    const optionalTeamControl = page.getByTestId('toprail-nav-team');
+    if (await optionalTeamControl.count()) {
+      await expect(optionalTeamControl).toBeVisible();
+      const box = await optionalTeamControl.boundingBox();
+      expect(box).not.toBeNull();
+      if (box) {
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewportWidth);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+      }
     }
 
     const pageHasHorizontalScroll = await page.evaluate(() => {

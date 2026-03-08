@@ -85,8 +85,6 @@ test('admin query/localStorage override does not unlock dashboard when env gate 
   await page.addInitScript(() => {
     window.localStorage.clear();
     window.localStorage.setItem('taskable:mode', 'cloud');
-    window.localStorage.setItem('taskable:cloud-token', 'owner-token');
-    window.localStorage.setItem('taskable:cloud-refresh-token', 'owner-refresh-token');
     window.localStorage.setItem('taskable:cloud-org-id', 'org_admin');
     window.localStorage.setItem('taskable:cloud-user-id', 'usr_admin_owner');
     window.localStorage.setItem('taskable:cloud-auto-sync', 'false');

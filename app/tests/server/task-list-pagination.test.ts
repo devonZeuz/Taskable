@@ -29,22 +29,26 @@ async function createTask(
   title: string,
   startDateTime = new Date().toISOString()
 ) {
-  const response = await jsonRequest<{ task?: { id?: string } }>(baseUrl, `/api/v1/orgs/${orgId}/tasks`, {
-    method: 'POST',
-    token,
-    body: {
-      title,
-      description: '',
-      startDateTime,
-      durationMinutes: 60,
-      color: '#2f74ff',
-      subtasks: [],
-      type: 'quick',
-      status: 'scheduled',
-      executionStatus: 'idle',
-      actualMinutes: 0,
-    },
-  });
+  const response = await jsonRequest<{ task?: { id?: string } }>(
+    baseUrl,
+    `/api/v1/orgs/${orgId}/tasks`,
+    {
+      method: 'POST',
+      token,
+      body: {
+        title,
+        description: '',
+        startDateTime,
+        durationMinutes: 60,
+        color: '#2f74ff',
+        subtasks: [],
+        type: 'quick',
+        status: 'scheduled',
+        executionStatus: 'idle',
+        actualMinutes: 0,
+      },
+    }
+  );
 
   expect(response.status).toBe(201);
   expect(response.body.task?.id).toBeTruthy();
@@ -79,17 +83,26 @@ describe('org task list pagination + incremental query', () => {
     const owner = await registerUser(server!.baseUrl, 'task-list-since');
     const staleTaskId = await createTask(server!.baseUrl, owner.token, owner.orgId, 'Old task');
     const freshTaskId = await createTask(server!.baseUrl, owner.token, owner.orgId, 'Fresh task');
-    const deletedTaskId = await createTask(server!.baseUrl, owner.token, owner.orgId, 'Deleted task');
+    const deletedTaskId = await createTask(
+      server!.baseUrl,
+      owner.token,
+      owner.orgId,
+      'Deleted task'
+    );
 
     await runSql(server!.dbPath, 'UPDATE tasks SET updated_at = ? WHERE id = ?', [
       '2024-01-01 00:00:00',
       staleTaskId,
     ]);
 
-    const deleteResponse = await jsonRequest(server!.baseUrl, `/api/v1/orgs/${owner.orgId}/tasks/${deletedTaskId}`, {
-      method: 'DELETE',
-      token: owner.token,
-    });
+    const deleteResponse = await jsonRequest(
+      server!.baseUrl,
+      `/api/v1/orgs/${owner.orgId}/tasks/${deletedTaskId}`,
+      {
+        method: 'DELETE',
+        token: owner.token,
+      }
+    );
     expect(deleteResponse.status).toBe(204);
 
     const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();

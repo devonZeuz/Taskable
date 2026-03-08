@@ -56,7 +56,7 @@ export default function LoginView() {
         setMfaTicket(challenge.ticket);
         setMessage('Authenticator code required. Enter the 6-digit code and submit again.');
       } else if (isCloudUnreachableError(error)) {
-        setMessage('Cloud API is unreachable. Check server status and VITE_API_URL.');
+        setMessage('Unable to reach the cloud service right now. Please try again in a moment.');
       } else {
         const detail = getAuthErrorMessage(error, 'Login failed.');
         const requestId = error instanceof CloudRequestError ? error.requestId : null;
@@ -89,7 +89,7 @@ export default function LoginView() {
   return (
     <AuthScaffold
       title="Sign in"
-      description="Use your cloud account to sync planner state, team presence, and workspace changes."
+      description="Access your synced planner, team workspace, and account security settings."
       footer={
         <p>
           Need an account?{' '}
@@ -101,7 +101,7 @@ export default function LoginView() {
       }
       heroLead="Welcome back to"
       heroTitle="Tareva"
-      heroSubtitle="Pick up where you left off. Your planner, priorities, and workspace sync return after sign-in."
+      heroSubtitle="Return to your planner with synced tasks, workspace access, and execution context intact."
     >
       <form className="space-y-4" onSubmit={handleSubmit} data-testid="auth-login-form">
         <div className="space-y-2">

@@ -6,15 +6,19 @@ If a change conflicts with this guide, this guide wins.
 ## Visual Reference Frames
 
 ### Planner + HUD layout
+
 ![Planner main HUD](./master-style-assets/planner-main.png)
 
 ### Task box style
+
 ![Task card](./master-style-assets/task-card.png)
 
 ### Settings drawer style
+
 ![Settings drawer](./master-style-assets/settings-drawer.png)
 
 ### Onboarding parity references
+
 ![Onboarding step 1](./master-style-assets/onboarding-step1.png)
 ![Onboarding step 3 drag](./master-style-assets/onboarding-step3-drag.png)
 ![Onboarding step 4 run](./master-style-assets/onboarding-step4-run.png)

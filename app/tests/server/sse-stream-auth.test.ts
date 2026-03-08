@@ -54,18 +54,75 @@ async function jsonRequest<T>(
     body?: unknown;
   } = {}
 ): Promise<{ status: number; body: T }> {
+  const authHeaders: Record<string, string> = {};
+  if (options.token) {
+    if (options.token.includes('=')) {
+      authHeaders.Cookie = options.token;
+    } else {
+      authHeaders.Authorization = `Bearer ${options.token}`;
+    }
+  }
   const response = await fetch(`${API_BASE}${pathname}`, {
     method: options.method ?? 'GET',
     headers: {
       'Content-Type': 'application/json',
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-    },
+      ...authHeaders,
+    } as Record<string, string>,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const body = (await response.json()) as T;
   return {
     status: response.status,
     body,
+  };
+}
+
+function splitSetCookieHeader(rawHeader: string): string[] {
+  if (!rawHeader) return [];
+  return rawHeader
+    .split(/,(?=\s*[^;=]+=[^;]+)/g)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function extractCookieValue(setCookieHeaders: string[], cookieName: string): string | null {
+  for (const header of setCookieHeaders) {
+    const [firstSegment] = header.split(';');
+    const [name, ...valueParts] = firstSegment.split('=');
+    if (name?.trim() !== cookieName) continue;
+    return valueParts.join('=').trim();
+  }
+  return null;
+}
+
+async function registerWithSessionCookies(name: string, email: string) {
+  const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name,
+      email,
+      password: 'Password123!',
+    }),
+  });
+
+  const body = (await response.json()) as { defaultOrgId?: string };
+  const setCookieHeaders =
+    typeof (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie ===
+    'function'
+      ? (response.headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
+      : splitSetCookieHeader(response.headers.get('set-cookie') ?? '');
+  const accessCookie = extractCookieValue(setCookieHeaders, 'taskable_access_token');
+  const refreshCookie = extractCookieValue(setCookieHeaders, 'taskable_refresh_token');
+  if (response.status !== 201 || !body.defaultOrgId || !accessCookie || !refreshCookie) {
+    throw new Error('Register did not return expected auth cookies.');
+  }
+
+  return {
+    orgId: body.defaultOrgId,
+    cookieHeader: `taskable_access_token=${accessCookie}; taskable_refresh_token=${refreshCookie}`,
   };
 }
 
@@ -113,21 +170,12 @@ afterAll(async () => {
 
 describe('SSE stream token auth hardening', () => {
   it('rejects replay of one-time stream tokens', async () => {
-    const register = await jsonRequest<{
-      accessToken: string;
-      defaultOrgId: string;
-    }>('/api/v1/auth/register', {
-      method: 'POST',
-      body: {
-        name: 'SSE Replay Tester',
-        email: `sse-replay-${Date.now()}@example.com`,
-        password: 'Password123!',
-      },
-    });
-
-    expect(register.status).toBe(201);
-    const token = register.body.accessToken;
-    const orgId = register.body.defaultOrgId;
+    const register = await registerWithSessionCookies(
+      'SSE Replay Tester',
+      `sse-replay-${Date.now()}@example.com`
+    );
+    const token = register.cookieHeader;
+    const orgId = register.orgId;
 
     const streamTokenResp = await jsonRequest<{ streamToken: string }>(
       `/api/v1/orgs/${orgId}/stream-token`,
@@ -158,21 +206,12 @@ describe('SSE stream token auth hardening', () => {
   });
 
   it('enforces org and session scoping for stream tokens', async () => {
-    const register = await jsonRequest<{
-      accessToken: string;
-      defaultOrgId: string;
-    }>('/api/v1/auth/register', {
-      method: 'POST',
-      body: {
-        name: 'SSE Scope Tester',
-        email: `sse-scope-${Date.now()}@example.com`,
-        password: 'Password123!',
-      },
-    });
-
-    expect(register.status).toBe(201);
-    const token = register.body.accessToken;
-    const orgA = register.body.defaultOrgId;
+    const register = await registerWithSessionCookies(
+      'SSE Scope Tester',
+      `sse-scope-${Date.now()}@example.com`
+    );
+    const token = register.cookieHeader;
+    const orgA = register.orgId;
 
     const createOrg = await jsonRequest<{ org: { id: string } }>('/api/v1/orgs', {
       method: 'POST',
@@ -214,21 +253,12 @@ describe('SSE stream token auth hardening', () => {
   });
 
   it('rejects expired stream tokens', async () => {
-    const register = await jsonRequest<{
-      accessToken: string;
-      defaultOrgId: string;
-    }>('/api/v1/auth/register', {
-      method: 'POST',
-      body: {
-        name: 'SSE Expiry Tester',
-        email: `sse-expiry-${Date.now()}@example.com`,
-        password: 'Password123!',
-      },
-    });
-
-    expect(register.status).toBe(201);
-    const token = register.body.accessToken;
-    const orgId = register.body.defaultOrgId;
+    const register = await registerWithSessionCookies(
+      'SSE Expiry Tester',
+      `sse-expiry-${Date.now()}@example.com`
+    );
+    const token = register.cookieHeader;
+    const orgId = register.orgId;
 
     const streamTokenResp = await jsonRequest<{ streamToken: string }>(
       `/api/v1/orgs/${orgId}/stream-token`,

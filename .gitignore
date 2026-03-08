@@ -1,0 +1,15 @@
+# Root-level transient debug captures
+.tmp-*
+
+# Local planning / audit notes
+/docs/
+CLAUDE_LOCAL_SNAPSHOT.md
+CLAUDE_LOCAL_SNAPSHOT_FILES.txt
+CODEX_T01_AND_DENSITY_FIX.md
+MASTER-UI.md
+TAREVA_UI_UX_MASTER_AUDIT.md
+app/docs/gpt-ui-audit-complex-card.md
+app_file_list.txt
+tareva-card-system-v4.html
+tareva-complex-task-card.html
+tareva-task-dialog.html

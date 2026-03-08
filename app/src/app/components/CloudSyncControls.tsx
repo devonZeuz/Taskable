@@ -68,13 +68,6 @@ export default function CloudSyncControls() {
     register,
     logout,
     refreshSession,
-    resendVerification,
-    verifyEmailToken,
-    requestPasswordReset,
-    resetPassword,
-    startMfaEnrollment,
-    confirmMfaEnrollment,
-    disableMfa,
     resolveConflictKeepMine,
     resolveConflictKeepTheirs,
     resolveConflictMerge,
@@ -87,6 +80,8 @@ export default function CloudSyncControls() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaTicket, setMfaTicket] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
   const [activeConflictId, setActiveConflictId] = useState<string | null>(null);
   const [mergeChoicesByTask, setMergeChoicesByTask] = useState<
     Record<string, Partial<Record<string, 'mine' | 'theirs'>>>
@@ -170,21 +165,21 @@ export default function CloudSyncControls() {
     try {
       if (mode === 'login') {
         try {
-          await login(email, password);
+          await login(email, password, mfaTicket ? { mfaTicket, mfaCode: mfaCode.trim() } : {});
         } catch (error) {
           const challenge = parseMfaChallenge(error);
           if (!challenge) throw error;
-          const providedCode = window.prompt('Enter your 6-digit authenticator code:');
-          if (!providedCode) throw new Error('MFA login cancelled.');
-          await login(email, password, {
-            mfaTicket: challenge.ticket,
-            mfaCode: providedCode,
-          });
+          setMfaTicket(challenge.ticket);
+          setMfaCode('');
+          toast.info('Enter your authenticator code to finish signing in.');
+          return;
         }
       } else {
         await register(name, email, password);
       }
       setPassword('');
+      setMfaTicket(null);
+      setMfaCode('');
       toast.success(mode === 'login' ? 'Connected to cloud.' : 'Cloud workspace created.');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authentication failed.';
@@ -303,25 +298,33 @@ export default function CloudSyncControls() {
         {!token ? (
           <form className="space-y-3" onSubmit={handleAuthSubmit}>
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">Cloud Sync</p>
+              <p className="text-sm font-semibold">Cloud workspace</p>
               <div className="inline-flex rounded-md border bg-muted/20 p-0.5">
                 <Button
                   type="button"
                   size="sm"
                   variant={mode === 'login' ? 'default' : 'ghost'}
                   className="h-7 px-2 text-[11px]"
-                  onClick={() => setMode('login')}
+                  onClick={() => {
+                    setMode('login');
+                    setMfaTicket(null);
+                    setMfaCode('');
+                  }}
                 >
-                  Login
+                  Sign in
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant={mode === 'register' ? 'default' : 'ghost'}
                   className="h-7 px-2 text-[11px]"
-                  onClick={() => setMode('register')}
+                  onClick={() => {
+                    setMode('register');
+                    setMfaTicket(null);
+                    setMfaCode('');
+                  }}
                 >
-                  Register
+                  Create
                 </Button>
               </div>
             </div>
@@ -357,11 +360,32 @@ export default function CloudSyncControls() {
                 required
               />
             </div>
+            {mfaTicket && mode === 'login' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="cloud-mfa-code">Authenticator code</Label>
+                <Input
+                  id="cloud-mfa-code"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value)}
+                  autoComplete="one-time-code"
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Multi-factor authentication is enabled for this account.
+                </p>
+              </div>
+            )}
             {error && <p className="text-xs text-red-400">{error}</p>}
             <Button type="submit" className="h-8 w-full" disabled={syncing}>
               <LogIn className="mr-1 size-4" />
-              {syncing ? 'Connecting...' : mode === 'login' ? 'Login' : 'Create account'}
+              {syncing ? 'Connecting...' : mode === 'login' ? 'Sign in' : 'Create account'}
             </Button>
+              <p className="text-[11px] text-muted-foreground">
+                Account verification, password recovery, and MFA management live in Settings -
+                Security after sign-in.
+              </p>
           </form>
         ) : (
           <div className="space-y-3">
@@ -376,7 +400,8 @@ export default function CloudSyncControls() {
                 <span className={`text-xs font-semibold ${realtimeTone}`}>{realtimeLabel}</span>
               </div>
               <p className="mt-1 text-[10px] text-muted-foreground">
-                SSE-first stream with reconnect fallback polling.
+                Realtime sync stays connected automatically and falls back safely if the live
+                connection drops.
               </p>
             </div>
             <div className="space-y-1.5">
@@ -439,117 +464,14 @@ export default function CloudSyncControls() {
                 Refresh
               </Button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[10px]"
-                onClick={() =>
-                  void runAction(
-                    () => resendVerification().then(() => undefined),
-                    'Verification email queued.',
-                    'Failed to resend verification.'
-                  )
-                }
-              >
-                Resend verify
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[10px]"
-                onClick={() => {
-                  const tokenValue = window.prompt('Enter your verification token:');
-                  if (tokenValue)
-                    void runAction(
-                      () => verifyEmailToken(tokenValue),
-                      'Email verified.',
-                      'Email verification failed.'
-                    );
-                }}
-              >
-                Enter verify token
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[10px]"
-                onClick={() => {
-                  const resetEmail = window.prompt(
-                    'Enter your account email for password reset:',
-                    email || ''
-                  );
-                  if (resetEmail)
-                    void runAction(
-                      () => requestPasswordReset(resetEmail).then(() => undefined),
-                      'Password reset requested.',
-                      'Password reset request failed.'
-                    );
-                }}
-              >
-                Request reset
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[10px]"
-                onClick={() => {
-                  const resetToken = window.prompt('Enter your reset token:');
-                  const newPassword = resetToken
-                    ? window.prompt('Enter a new password (min 8 chars):')
-                    : null;
-                  if (resetToken && newPassword)
-                    void runAction(
-                      () => resetPassword(resetToken, newPassword),
-                      'Password updated.',
-                      'Password reset failed.'
-                    );
-                }}
-              >
-                Use reset token
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[10px]"
-                onClick={() =>
-                  void runAction(
-                    async () => {
-                      const setup = await startMfaEnrollment();
-                      window.prompt('MFA secret (save this):', setup.secret);
-                      const code = window.prompt('Enter your 6-digit authenticator code:');
-                      if (!code) throw new Error('MFA setup cancelled.');
-                      await confirmMfaEnrollment(code);
-                    },
-                    'MFA enabled.',
-                    'Failed to enable MFA.'
-                  )
-                }
-              >
-                Enable MFA
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[10px]"
-                onClick={() => {
-                  const code = window.prompt('Enter current 6-digit authenticator code:');
-                  if (code)
-                    void runAction(
-                      () => disableMfa(code),
-                      'MFA disabled.',
-                      'Failed to disable MFA.'
-                    );
-                }}
-              >
-                Disable MFA
-              </Button>
+            <div className="rounded-md border bg-muted/20 px-2 py-2">
+            <p className="text-[11px] font-semibold text-[color:var(--hud-text)]">
+                Account security
+              </p>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Verification, password recovery, and MFA controls are available in Settings -
+                Security.
+              </p>
             </div>
             {conflicts.length > 0 && (
               <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">

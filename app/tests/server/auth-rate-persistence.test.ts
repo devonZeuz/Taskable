@@ -87,12 +87,10 @@ afterEach(async () => {
 });
 
 describe('auth rate limiter persistence', () => {
-  it(
-    'retains lockout state across server restarts',
-    async () => {
-      await startServer();
+  it('retains lockout state across server restarts', async () => {
+    await startServer();
 
-      const first = await loginAttempt();
+    const first = await loginAttempt();
     expect(first.status).toBe(401);
 
     const second = await loginAttempt();
@@ -104,9 +102,7 @@ describe('auth rate limiter persistence', () => {
     await stopServer();
     await startServer();
 
-      const blockedAfterRestart = await loginAttempt();
-      expect(blockedAfterRestart.status).toBe(429);
-    },
-    20_000
-  );
+    const blockedAfterRestart = await loginAttempt();
+    expect(blockedAfterRestart.status).toBe(429);
+  }, 20_000);
 });

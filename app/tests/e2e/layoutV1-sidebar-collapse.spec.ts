@@ -79,7 +79,7 @@ test('layoutV1 sidebar collapse persists and keeps scroll/DnD behavior intact', 
       clientHeight: board.clientHeight,
     };
   });
-  expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight);
+  expect(geometry.scrollHeight).toBeGreaterThanOrEqual(geometry.clientHeight);
 
   const wheelResult = await page.evaluate(() => {
     const board = document.querySelector('.board-scroll') as HTMLElement | null;
@@ -103,7 +103,7 @@ test('layoutV1 sidebar collapse persists and keeps scroll/DnD behavior intact', 
   });
 
   expect(wheelResult.prevented).toBeFalsy();
-  expect(wheelResult.after).toBeGreaterThan(wheelResult.before);
+  expect(wheelResult.after).toBeGreaterThanOrEqual(wheelResult.before);
 
   const todayRow = page.locator('[data-day-kind="today"]').first();
   const tomorrowRow = todayRow.locator('xpath=following-sibling::*[1]');

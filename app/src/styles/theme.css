@@ -78,14 +78,14 @@
   --timeline-now-glow: rgba(230, 63, 151, 0.42);
   --hour-start-highlight: #f5bad5;
   --hour-end-highlight: #ddb1c8;
-  --planner-day-row-height: calc(174px * 0.8125);
-  --planner-day-row-height-mobile: calc(134px * 0.8125);
-  --planner-day-label-title-size: calc(34px * 0.8125);
-  --planner-day-label-subtitle-size: calc(13px * 0.8125);
-  --planner-hour-label-size: calc(12px * 0.8125);
-  --planner-hour-end-label-size: calc(11px * 0.8125);
-  --planner-sidebar-width: calc(300px * 0.8125);
-  --planner-sidebar-collapsed-width: calc(72px * 0.8125);
+  --planner-day-row-height: calc(182px * 0.875);
+  --planner-day-row-height-mobile: calc(142px * 0.875);
+  --planner-day-label-title-size: calc(36px * 0.875);
+  --planner-day-label-subtitle-size: calc(13px * 0.875);
+  --planner-hour-label-size: calc(12px * 0.875);
+  --planner-hour-end-label-size: calc(11px * 0.875);
+  --planner-sidebar-width: calc(320px * 0.875);
+  --planner-sidebar-collapsed-width: calc(80px * 0.875);
 }
 
 :root[data-app-theme='default'] {
@@ -460,23 +460,23 @@
 }
 
 [data-testid='app-shell'][data-density='comfortable'] {
-  --ui-font-scale: 0.8125;
-  --ui-space-scale: 0.8125;
-  --ui-control-scale: 0.8125;
+  --ui-font-scale: 0.875;
+  --ui-space-scale: 0.875;
+  --ui-control-scale: 0.875;
 }
 
 [data-testid='app-shell'][data-density='compact'] {
-  --ui-font-scale: 0.73125;
-  --ui-space-scale: 0.690625;
-  --ui-control-scale: 0.73125;
-  --planner-day-row-height: calc(154px * 0.8125);
-  --planner-day-row-height-mobile: calc(118px * 0.8125);
-  --planner-day-label-title-size: calc(30px * 0.8125);
-  --planner-day-label-subtitle-size: calc(12px * 0.8125);
-  --planner-hour-label-size: calc(11px * 0.8125);
-  --planner-hour-end-label-size: calc(10px * 0.8125);
-  --planner-sidebar-width: calc(270px * 0.8125);
-  --planner-sidebar-collapsed-width: calc(64px * 0.8125);
+  --ui-font-scale: 0.79;
+  --ui-space-scale: 0.76;
+  --ui-control-scale: 0.79;
+  --planner-day-row-height: calc(164px * 0.79);
+  --planner-day-row-height-mobile: calc(126px * 0.79);
+  --planner-day-label-title-size: calc(31px * 0.79);
+  --planner-day-label-subtitle-size: calc(12px * 0.79);
+  --planner-hour-label-size: calc(11px * 0.79);
+  --planner-hour-end-label-size: calc(10px * 0.79);
+  --planner-sidebar-width: calc(288px * 0.79);
+  --planner-sidebar-collapsed-width: calc(68px * 0.79);
 }
 
 @theme inline {
@@ -532,7 +532,8 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     font-family: 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -613,28 +614,31 @@
 
 @layer components {
   .ui-hud-shell {
-    border: 1px solid var(--hud-border);
-    background: var(--hud-surface);
+    border: 1px solid color-mix(in srgb, var(--hud-border) 84%, white 16%);
+    background: color-mix(in srgb, var(--hud-surface) 94%, transparent);
     color: var(--hud-text);
-    box-shadow: var(--hud-shadow);
-    backdrop-filter: blur(12px);
+    box-shadow:
+      var(--hud-shadow),
+      inset 0 1px 0 color-mix(in srgb, var(--hud-border) 24%, transparent);
+    backdrop-filter: blur(16px);
   }
 
   .ui-hud-panel {
-    border: 1px solid var(--hud-border);
-    background: var(--hud-surface);
+    border: 1px solid color-mix(in srgb, var(--hud-border) 72%, transparent);
+    background: color-mix(in srgb, var(--hud-surface) 82%, transparent);
     color: var(--hud-text);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
   }
 
   .ui-hud-section {
-    border: 1px solid var(--hud-border);
-    background: var(--hud-surface-soft);
+    border: 1px solid color-mix(in srgb, var(--hud-border) 56%, transparent);
+    background: color-mix(in srgb, var(--hud-surface-soft) 72%, transparent);
     color: var(--hud-text);
   }
 
   .ui-hud-row {
-    border: 1px solid var(--hud-border);
-    background: var(--hud-surface-strong);
+    border: 1px solid color-mix(in srgb, var(--hud-border) 48%, transparent);
+    background: color-mix(in srgb, var(--hud-surface-strong) 58%, transparent);
     color: var(--hud-text);
   }
 
@@ -645,18 +649,24 @@
   }
 
   .ui-hud-btn {
-    border: 1px solid var(--hud-border);
-    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--hud-border) 72%, transparent);
+    background: color-mix(in srgb, var(--hud-surface-strong) 34%, transparent);
     color: var(--hud-text);
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      filter 140ms ease;
   }
 
   .ui-hud-btn:hover {
-    filter: brightness(1.06);
+    background: color-mix(in srgb, var(--hud-surface-strong) 72%, transparent);
+    border-color: var(--hud-outline);
+    filter: none;
   }
 
   .ui-hud-btn-soft {
-    border: 1px solid var(--hud-border);
-    background: var(--hud-accent-soft);
+    border: 1px solid color-mix(in srgb, var(--hud-border) 78%, transparent);
+    background: color-mix(in srgb, var(--hud-accent-soft) 88%, var(--hud-surface) 12%);
     color: var(--hud-accent-soft-text);
   }
 

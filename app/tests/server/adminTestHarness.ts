@@ -12,7 +12,7 @@ export interface TestServer {
 
 export interface RegisteredUser {
   token: string;
-  refreshToken: string;
+  refreshToken: string | null;
   orgId: string;
   userId: string;
   email: string;
@@ -25,6 +25,32 @@ export interface JsonResponse<T> {
 }
 
 const DEFAULT_TIMEOUT_MS = 12_000;
+
+function buildAuthHeaders(token?: string): Record<string, string> {
+  if (!token) return {};
+  if (token.includes('=')) {
+    return { Cookie: token };
+  }
+  return { Authorization: `Bearer ${token}` };
+}
+
+function splitSetCookieHeader(rawHeader: string): string[] {
+  if (!rawHeader) return [];
+  return rawHeader
+    .split(/,(?=\s*[^;=]+=[^;]+)/g)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function extractCookieValue(setCookieHeaders: string[], cookieName: string): string | null {
+  for (const header of setCookieHeaders) {
+    const [firstSegment] = header.split(';');
+    const [name, ...valueParts] = firstSegment.split('=');
+    if (name?.trim() !== cookieName) continue;
+    return valueParts.join('=').trim();
+  }
+  return null;
+}
 
 export async function startTestServer({
   port,
@@ -115,8 +141,8 @@ export async function jsonRequest<T>(
     method: options.method ?? 'GET',
     headers: {
       'Content-Type': 'application/json',
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-    },
+      ...buildAuthHeaders(options.token),
+    } as Record<string, string>,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
@@ -136,27 +162,36 @@ export async function jsonRequest<T>(
 export async function registerUser(baseUrl: string, suffix: string): Promise<RegisteredUser> {
   const email = `admin-${suffix}-${Math.random().toString(36).slice(2, 7)}@example.com`;
   const password = 'Password123!';
-  const register = await jsonRequest<{
-    token?: string;
-    accessToken?: string;
-    refreshToken: string;
-    defaultOrgId: string;
-  }>(baseUrl, '/api/v1/auth/register', {
+  const registerResponse = await fetch(`${baseUrl}/api/v1/auth/register`, {
     method: 'POST',
-    body: {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
       name: `Admin ${suffix}`,
       email,
       password,
-    },
+    }),
   });
+  const registerBody = (await registerResponse.json()) as {
+    defaultOrgId?: string;
+    user?: { id?: string };
+  };
+  if (registerResponse.status !== 201) {
+    throw new Error(`Registration failed with status ${registerResponse.status}.`);
+  }
 
-  if (register.status !== 201) {
-    throw new Error(`Registration failed with status ${register.status}.`);
+  const setCookieHeaders =
+    typeof (registerResponse.headers as Headers & { getSetCookie?: () => string[] })
+      .getSetCookie === 'function'
+      ? (registerResponse.headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
+      : splitSetCookieHeader(registerResponse.headers.get('set-cookie') ?? '');
+  const accessCookie = extractCookieValue(setCookieHeaders, 'taskable_access_token');
+  const refreshCookie = extractCookieValue(setCookieHeaders, 'taskable_refresh_token');
+  if (!accessCookie || !refreshCookie || !registerBody.defaultOrgId) {
+    throw new Error('Missing auth cookie session payload from register.');
   }
-  const token = register.body.accessToken ?? register.body.token;
-  if (!token || !register.body.defaultOrgId || !register.body.refreshToken) {
-    throw new Error('Missing session payload from register.');
-  }
+  const token = `taskable_access_token=${accessCookie}; taskable_refresh_token=${refreshCookie}`;
 
   const me = await jsonRequest<{ user: { id: string } }>(baseUrl, '/api/v1/me', { token });
   if (me.status !== 200 || !me.body.user?.id) {
@@ -165,8 +200,8 @@ export async function registerUser(baseUrl: string, suffix: string): Promise<Reg
 
   return {
     token,
-    refreshToken: register.body.refreshToken,
-    orgId: register.body.defaultOrgId,
+    refreshToken: refreshCookie,
+    orgId: registerBody.defaultOrgId,
     userId: me.body.user.id,
     email,
     password,

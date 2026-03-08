@@ -236,7 +236,7 @@ export default function DataBackupSettings() {
             onClick={() => setConfirmDeleteAllOpen(true)}
             disabled={isCloudWorkspaceMode && !canDeleteTasks}
           >
-            Delete all tasks (testing)
+            Delete all tasks
           </Button>
         </div>
         {isCloudWorkspaceMode && !canDeleteTasks && (
@@ -253,23 +253,24 @@ export default function DataBackupSettings() {
         />
       </section>
 
-      <section className="ui-hud-section ui-v1-radius-md p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
-          Workspace Data
-        </p>
-        <p className="mt-2 text-xs text-[color:var(--hud-muted)]">
-          Cloud mode only. Export workspace tasks or import your local board into the active
-          workspace.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => void exportWorkspaceData()}>
-            Export workspace data
-          </Button>
-          <Button type="button" onClick={() => void importLocalIntoWorkspace()}>
-            Import local data into workspace
-          </Button>
-        </div>
-      </section>
+      {isCloudWorkspaceMode ? (
+        <section className="ui-hud-section ui-v1-radius-md p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--hud-muted)]">
+            Workspace Data
+          </p>
+          <p className="mt-2 text-xs text-[color:var(--hud-muted)]">
+            Export workspace tasks or import your local board into the active workspace.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => void exportWorkspaceData()}>
+              Export workspace data
+            </Button>
+            <Button type="button" onClick={() => void importLocalIntoWorkspace()}>
+              Import local data into workspace
+            </Button>
+          </div>
+        </section>
+      ) : null}
 
       <AlertDialog open={confirmDeleteAllOpen} onOpenChange={setConfirmDeleteAllOpen}>
         <AlertDialogContent>

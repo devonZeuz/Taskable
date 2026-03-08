@@ -9,6 +9,7 @@ export type SettingsSectionKey =
   | 'about';
 
 export const OPEN_SETTINGS_EVENT = 'taskable:open-settings';
+export const CLOSE_SETTINGS_EVENT = 'taskable:close-settings';
 export const PENDING_CONFLICT_TASK_ID_STORAGE_KEY = 'taskable:pending-conflict-task-id';
 
 export interface OpenSettingsEventDetail {
@@ -27,6 +28,11 @@ export function requestOpenSettings(detail: OpenSettingsEventDetail) {
     }
   }
   window.dispatchEvent(new CustomEvent<OpenSettingsEventDetail>(OPEN_SETTINGS_EVENT, { detail }));
+}
+
+export function requestCloseSettings() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(CLOSE_SETTINGS_EVENT));
 }
 
 export function requestOpenConflictResolver(taskId: string) {

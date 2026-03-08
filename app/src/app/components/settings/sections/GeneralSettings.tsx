@@ -404,10 +404,10 @@ export default function GeneralSettings() {
           />
           {executionModeV1Enabled && (
             <ToggleRow
-              label="Share operational telemetry in cloud mode"
+              label="Share reliability diagnostics in cloud mode"
               description={
                 mode === 'cloud'
-                  ? 'Send execution telemetry to cloud ops ingest for reliability insights.'
+                  ? 'Share execution diagnostics to help improve sync and reliability.'
                   : 'Only applies when cloud mode is active.'
               }
               checked={preferences.telemetryShareEnabled}

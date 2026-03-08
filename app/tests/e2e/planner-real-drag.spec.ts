@@ -4,15 +4,18 @@ import { bootstrapLocalMode } from './storageBootstrap';
 test('real mouse drag moves a scheduled task to a new time slot', async ({ page }) => {
   await bootstrapLocalMode(page, { seedDemoTasks: true });
   await page.goto('/planner');
+  await page.locator('.board-scroll').evaluate((node) => {
+    (node as HTMLElement).scrollLeft = 0;
+  });
 
   const todayRow = page.locator('[data-day-kind="today"]').first();
   await expect(todayRow).toBeVisible();
 
-  const taskCard = todayRow.locator('[data-task-title="Germany Invoices"]').first();
+  const taskCard = todayRow.locator('[data-task-title="Monthly Reports"]').first();
   await expect(taskCard).toBeVisible();
 
   const taskBox = await taskCard.boundingBox();
-  const hourLabel = page.locator('[data-time-axis="1"] span', { hasText: '11:00' }).first();
+  const hourLabel = page.locator('[data-time-axis="1"] span', { hasText: '12:00' }).first();
   await expect(hourLabel).toBeVisible();
   const hourBox = await hourLabel.boundingBox();
   const dayColumn = todayRow.locator('[data-testid^="day-column-"]').first();
@@ -39,5 +42,5 @@ test('real mouse drag moves a scheduled task to a new time slot', async ({ page 
     },
   });
 
-  await expect(taskCard).toContainText('11:00');
+  await expect(taskCard).toContainText('12:00');
 });

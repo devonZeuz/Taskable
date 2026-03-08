@@ -26,6 +26,7 @@ import {
   getScheduledEndTimestamp,
   roundDurationToGrid,
 } from '../services/taskTimer';
+import { playReminderChime } from '../services/uiSounds';
 
 interface NotificationSettingsContextType {
   enabled: boolean;
@@ -44,6 +45,7 @@ interface NotificationSettingsContextType {
 const STORAGE_KEY = 'taskable:notifications-enabled';
 const LEGACY_STORAGE_KEY = 'Tareva:notifications-enabled';
 const CHECK_INTERVAL_MS = 10_000;
+const TASK_ENDING_SOON_LEAD_MINUTES = 5;
 
 const NotificationSettingsContext = createContext<NotificationSettingsContextType | undefined>(
   undefined
@@ -53,6 +55,11 @@ interface EndPromptItem {
   key: string;
   taskId: string;
   scheduledEndMs: number;
+}
+
+interface ReminderNotifyOptions {
+  persistent?: boolean;
+  playSound?: boolean;
 }
 
 function isNotificationSupported(): boolean {
@@ -104,6 +111,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
       adaptiveMode,
       slotMinutes,
       autoShoveOnExtend,
+      soundEffectsEnabled,
     },
     setPreference,
   } = useUserPreferences();
@@ -147,17 +155,28 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
   }, [endPromptQueue.length, tasks]);
 
   const notify = useCallback(
-    (title: string, body: string, dedupeKey: string) => {
+    (title: string, body: string, dedupeKey: string, options: ReminderNotifyOptions = {}) => {
       if (notifiedRef.current[dedupeKey]) return;
 
       if (enabled && permission === 'granted' && isNotificationSupported()) {
-        new Notification(title, { body });
+        new Notification(title, {
+          body,
+          tag: dedupeKey,
+          requireInteraction: Boolean(options.persistent),
+        });
       } else {
-        toast.message(title, { description: body });
+        toast.message(title, {
+          description: body,
+          duration: options.persistent ? Number.POSITIVE_INFINITY : 5000,
+        });
+      }
+
+      if (options.playSound && soundEffectsEnabled) {
+        playReminderChime();
       }
       notifiedRef.current[dedupeKey] = Date.now();
     },
-    [enabled, permission]
+    [enabled, permission, soundEffectsEnabled]
   );
 
   useEffect(() => {
@@ -399,9 +418,29 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
             notify(
               task.title,
               `Starts at ${formatClock(new Date(taskStartMs))}. (${leadMinutes} min)`,
-              key
+              key,
+              {
+                persistent: leadMinutes === 15,
+                playSound: leadMinutes === 15,
+              }
             );
           });
+        }
+
+        if (task.executionStatus === 'running') {
+          const scheduledEndMs = getScheduledEndTimestamp(task);
+          if (scheduledEndMs !== null) {
+            const remainingMs = scheduledEndMs - now;
+            const endingSoonLeadMs = TASK_ENDING_SOON_LEAD_MINUTES * 60 * 1000;
+            if (remainingMs > 0 && remainingMs <= endingSoonLeadMs) {
+              const key = `${task.id}:${scheduledEndMs}:ending-soon:${TASK_ENDING_SOON_LEAD_MINUTES}`;
+              notify(
+                task.title,
+                `Ends at ${formatClock(new Date(scheduledEndMs))}. ${TASK_ENDING_SOON_LEAD_MINUTES} min left.`,
+                key
+              );
+            }
+          }
         }
 
         if (!adaptiveMode || !endPromptEnabled || task.executionStatus !== 'running') return;

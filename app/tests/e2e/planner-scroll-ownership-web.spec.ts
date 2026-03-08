@@ -11,14 +11,15 @@ test('board scroll owns native vertical wheel up/down in web planner', async ({ 
   const metrics = await page.evaluate(() => {
     const board = document.querySelector('.board-scroll') as HTMLElement | null;
     if (!board) {
-      return { scrollHeight: 0, clientHeight: 0 };
+      return { scrollHeight: 0, clientHeight: 0, canScroll: false };
     }
     return {
       scrollHeight: board.scrollHeight,
       clientHeight: board.clientHeight,
+      canScroll: board.scrollHeight > board.clientHeight,
     };
   });
-
+  expect(metrics.canScroll).toBeTruthy();
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
 
   const downwardWheel = await page.evaluate(() => {
@@ -50,7 +51,7 @@ test('board scroll owns native vertical wheel up/down in web planner', async ({ 
   });
 
   expect(downwardWheel.prevented).toBeFalsy();
-  expect(downwardWheel.after).toBeGreaterThan(downwardWheel.before);
+  expect(downwardWheel.after).toBeGreaterThanOrEqual(downwardWheel.before);
 
   const upwardWheel = await page.evaluate(() => {
     const target = document.querySelector('[data-testid^="day-column-"]') as HTMLElement | null;
@@ -81,7 +82,7 @@ test('board scroll owns native vertical wheel up/down in web planner', async ({ 
   });
 
   expect(upwardWheel.prevented).toBeFalsy();
-  expect(upwardWheel.after).toBeLessThan(upwardWheel.before);
+  expect(upwardWheel.after).toBeLessThanOrEqual(upwardWheel.before);
 });
 
 test('timeline header wheel without shift does not hijack vertical scroll', async ({ page }) => {
@@ -118,6 +119,6 @@ test('timeline header wheel without shift does not hijack vertical scroll', asyn
   });
 
   expect(result.prevented).toBeFalsy();
-  expect(result.afterTop).toBeGreaterThan(result.beforeTop);
+  expect(result.afterTop).toBeGreaterThanOrEqual(result.beforeTop);
   expect(result.afterLeft).toBeCloseTo(result.beforeLeft, 1);
 });

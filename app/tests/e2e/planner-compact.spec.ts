@@ -60,12 +60,42 @@ test('compact staggered cards stay inside day row bounds', async ({ page }) => {
     };
 
     const dense = [
-      { id: 'compact-clip-a', title: 'New Task', startDateTime: makeIso(8, 0), durationMinutes: 60 },
-      { id: 'compact-clip-b', title: 'New Task', startDateTime: makeIso(9, 0), durationMinutes: 60 },
-      { id: 'compact-clip-c', title: 'New Task', startDateTime: makeIso(10, 0), durationMinutes: 60 },
-      { id: 'compact-clip-d', title: 'New Task', startDateTime: makeIso(10, 0), durationMinutes: 60 },
-      { id: 'compact-clip-e', title: 'New Task', startDateTime: makeIso(11, 0), durationMinutes: 60 },
-      { id: 'compact-clip-f', title: 'New Task', startDateTime: makeIso(11, 0), durationMinutes: 60 },
+      {
+        id: 'compact-clip-a',
+        title: 'New Task',
+        startDateTime: makeIso(8, 0),
+        durationMinutes: 60,
+      },
+      {
+        id: 'compact-clip-b',
+        title: 'New Task',
+        startDateTime: makeIso(9, 0),
+        durationMinutes: 60,
+      },
+      {
+        id: 'compact-clip-c',
+        title: 'New Task',
+        startDateTime: makeIso(10, 0),
+        durationMinutes: 60,
+      },
+      {
+        id: 'compact-clip-d',
+        title: 'New Task',
+        startDateTime: makeIso(10, 0),
+        durationMinutes: 60,
+      },
+      {
+        id: 'compact-clip-e',
+        title: 'New Task',
+        startDateTime: makeIso(11, 0),
+        durationMinutes: 60,
+      },
+      {
+        id: 'compact-clip-f',
+        title: 'New Task',
+        startDateTime: makeIso(11, 0),
+        durationMinutes: 60,
+      },
     ].map((task, index) => ({
       description: '',
       timeZone: 'UTC',

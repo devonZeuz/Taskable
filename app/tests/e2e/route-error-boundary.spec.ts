@@ -24,9 +24,8 @@ test('shows branded recovery UI when lazy route chunk fails', async ({ page }) =
   });
 
   await page.goto('/planner');
-  await expect(page.getByTestId('nav-team')).toBeVisible();
   abortNextChunk = true;
-  await page.getByTestId('nav-team').click();
+  await page.goto('/team');
 
   await expect(page.getByTestId('route-error-boundary')).toBeVisible();
   await expect(page.getByTestId('route-error-retry')).toBeVisible();
