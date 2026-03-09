@@ -78,6 +78,7 @@
   --timeline-now-glow: rgba(230, 63, 151, 0.42);
   --hour-start-highlight: #f5bad5;
   --hour-end-highlight: #ddb1c8;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
   --planner-day-row-height: calc(182px * 0.875);
   --planner-day-row-height-mobile: calc(142px * 0.875);
   --planner-day-label-title-size: calc(36px * 0.875);
@@ -314,6 +315,7 @@
   --timeline-now-glow: rgba(61, 66, 80, 0.22);
   --hour-start-highlight: #1c1b1f;
   --hour-end-highlight: #3d4250;
+  --scrollbar-thumb: rgba(28, 27, 31, 0.26);
 }
 
 :root[data-app-theme='sugar-plum'] {
@@ -555,7 +557,7 @@
 
   .board-scroll {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   .board-scroll::-webkit-scrollbar {
@@ -570,7 +572,7 @@
   .board-scroll::-webkit-scrollbar-thumb {
     border-radius: 999px;
     border: 2px solid transparent;
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--scrollbar-thumb);
     background-clip: padding-box;
   }
 

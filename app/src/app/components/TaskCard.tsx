@@ -17,8 +17,10 @@ import { useTeamMembers } from '../context/TeamMembersContext';
 import { useCloudSync } from '../context/CloudSyncContext';
 import { useUserPreferences } from '../context/UserPreferencesContext';
 import { type AppTheme, useAppTheme } from '../context/AppThemeContext';
+import { useWorkday } from '../context/WorkdayContext';
 import { buildEffectiveMembers } from '../services/memberDirectory';
 import { combineDayAndTime, getDayKeyFromDateTime, minutesToTime } from '../services/scheduling';
+import { buildBlockShiftPlan } from '../services/blockScheduling';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,9 +71,11 @@ export default function TaskCard({
   isPreview = false,
 }: TaskCardProps) {
   const {
+    tasks,
     updateTask,
     toggleSubtaskComplete,
     deleteTask,
+    moveTasksAtomic,
     nowTimestamp,
     selectedTaskId,
     startTask,
@@ -97,6 +101,7 @@ export default function TaskCard({
   const {
     preferences: { uiDensity },
   } = useUserPreferences();
+  const { workday } = useWorkday();
   const { theme } = useAppTheme();
   const useCloudMembers = cloudEnabled && Boolean(cloudToken && activeOrgId);
   const members = useMemo(
@@ -178,6 +183,12 @@ export default function TaskCard({
   const useColumnFooter = widthBasis < 150 || isMicro;
   const showVerticalTime =
     hasStartTime && !isBlockTask && (task.durationMinutes < 60 || isTiny || isUltraTiny);
+  const titleLineClamp =
+    isUltraTiny || widthBasis < 186 || heightBasis < 146 || (showVerticalTime && heightBasis < 154)
+      ? 1
+      : 2;
+  const compactMetadataMode = showVerticalTime && (heightBasis < 168 || widthBasis < 212);
+  const showTaskTypeMeta = !isPreview && !isMicro && !compactMetadataMode;
   const timeLabel = hasStartTime
     ? isCompact
       ? `${startTime}-${endTime}`
@@ -283,6 +294,12 @@ export default function TaskCard({
           ? 0.3
           : 0;
   const showComplexCardLayout = forceComplexChecklistLayout;
+  const showCompactComplexNotch =
+    isComplexTask &&
+    !showComplexCardLayout &&
+    !isUltraTiny &&
+    widthBasis >= 168 &&
+    heightBasis >= 116;
   const complexGrooveHeight = showComplexCardLayout
     ? clamp(Math.round(heightBasis * 0.22), 28, 52)
     : 0;
@@ -296,6 +313,16 @@ export default function TaskCard({
           })
         : undefined,
     [complexGrooveHeight, heightBasis, showComplexCardLayout, widthBasis]
+  );
+  const compactComplexClipPath = useMemo(
+    () =>
+      showCompactComplexNotch
+        ? buildCompactComplexClipPath({
+            width: widthBasis,
+            height: heightBasis,
+          })
+        : undefined,
+    [heightBasis, showCompactComplexNotch, widthBasis]
   );
   const showComplexSubtaskSummary = showComplexCardLayout && task.subtasks.length > 0;
   const showComplexSubtaskList = showComplexCardLayout && visibleSubtasks.length > 0;
@@ -338,7 +365,7 @@ export default function TaskCard({
   const complexChecklistTopInset = showComplexCardLayout
     ? clamp(Math.round(complexGrooveHeight * 0.9), 12, 36)
     : 0;
-  const blockTitleLabel = (task.title || 'BLOCK').toUpperCase();
+  const blockTitleLabel = task.title || 'Block';
   const subtaskTextLineClamp = widthBasis < 190 || heightBasis < 150 ? 1 : 2;
   const paddingClass = showComplexCardLayout
     ? isComplexCompact
@@ -359,7 +386,12 @@ export default function TaskCard({
           : isTiny
             ? 'p-3.5'
             : 'p-[18px]';
-  const showTopMeta = widthBasis >= 232 && heightBasis >= 152 && !isPreview;
+  const showTopMeta = !isPreview && widthBasis >= 156 && heightBasis >= 110;
+  const showAssigneeBadge = !isBlockTask && widthBasis >= 212 && heightBasis >= 126;
+  const showDoneBadge = !isBlockTask && widthBasis >= 180 && heightBasis >= 118;
+  const topMetaTopPx = showComplexCardLayout
+    ? complexGrooveHeight + (isComplexCompact ? 12 : 14)
+    : 10;
   const requestTakeover = useCallback(() => {
     if (!isLockedByOther || !taskPresenceLock) return;
     if (!canForceTakeover) {
@@ -439,6 +471,32 @@ export default function TaskCard({
     };
 
     const handleUp = () => {
+      if (task.type === 'block' && task.startDateTime) {
+        const startDate = new Date(task.startDateTime);
+        const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+        const dayKey = getDayKeyFromDateTime(task.startDateTime);
+        const blockShiftPlan = buildBlockShiftPlan(
+          tasks,
+          dayKey,
+          startMinutes,
+          task.durationMinutes,
+          task.id,
+          workday
+        );
+        if (blockShiftPlan && blockShiftPlan.moves.length > 0) {
+          moveTasksAtomic(
+            blockShiftPlan.moves.map((move) => ({
+              id: move.task.id,
+              startDateTime: move.startDateTime,
+            }))
+          );
+          toast.success(
+            `Block resized. Shifted ${blockShiftPlan.moves.length} task${
+              blockShiftPlan.moves.length === 1 ? '' : 's'
+            }.`
+          );
+        }
+      }
       if (resizeStartedAt !== null) {
         const endedAt =
           typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -472,9 +530,13 @@ export default function TaskCard({
     slotMinutes,
     getMinutesFromClientX,
     task.id,
+    tasks,
     task.startDateTime,
     task.durationMinutes,
     updateTask,
+    moveTasksAtomic,
+    task.type,
+    workday,
   ]);
 
   const handleResizeStart =
@@ -576,11 +638,11 @@ export default function TaskCard({
       style={{
         backgroundColor: tone.background,
         border: `1.5px solid ${tone.borderColor}`,
-        borderRadius: showComplexCardLayout ? '20px' : '16px',
+        borderRadius: showComplexCardLayout ? '20px' : showCompactComplexNotch ? '18px' : '16px',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         boxShadow: '0 2px 8px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.2)',
-        clipPath: complexClipPath,
+        clipPath: complexClipPath ?? compactComplexClipPath,
         fontFamily: '"SF Pro Display",-apple-system,BlinkMacSystemFont,system-ui,sans-serif',
         filter: isCompletedExecution ? 'grayscale(0.24) brightness(0.9) saturate(0.88)' : undefined,
         ...blockStyle,
@@ -683,27 +745,35 @@ export default function TaskCard({
 
       {showTopMeta && (
         <div
-          className={`pointer-events-none absolute right-3 z-10 flex items-center gap-2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 ${
-            showComplexCardLayout ? 'top-11' : 'top-3'
-          }`}
+          className="absolute right-3 z-10 flex items-center gap-1.5 rounded-full border px-1.5 py-1 shadow-[0_10px_26px_rgba(0,0,0,0.18)] opacity-0 transition-opacity group-hover:opacity-100"
+          data-no-smart-actions="true"
+          style={{
+            top: `${topMetaTopPx}px`,
+            backgroundColor: withAlpha(tone.background, 0.76),
+            borderColor: withAlpha(tone.title, 0.14),
+            backdropFilter: 'blur(14px)',
+          }}
         >
-          {!isBlockTask && assigneeInitials && (
+          {showAssigneeBadge && assigneeInitials && (
             <div
-              className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold"
-              style={{ backgroundColor: tone.utilityBg, color: tone.utilityText }}
+              className="flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-[10px] font-bold"
+              style={{
+                backgroundColor: withAlpha(tone.title, 0.08),
+                color: tone.utilityText,
+              }}
               title={assignee?.name}
             >
               {assigneeInitials}
             </div>
           )}
-          {!isBlockTask && (
+          {showDoneBadge && (
             <button
               type="button"
               data-no-smart-actions="true"
               aria-label={isCompletedExecution ? 'Reopen task' : 'Mark task done'}
               disabled={writeBlocked}
-              className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ backgroundColor: tone.utilityBg, color: tone.utilityText }}
+              className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ color: tone.utilityText }}
               onClick={() => {
                 if (blockConflictMutation()) return;
                 if (isLockedByOther) {
@@ -727,8 +797,8 @@ export default function TaskCard({
             data-no-smart-actions="true"
             aria-label="Delete task"
             disabled={deleteBlocked}
-            className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ backgroundColor: tone.utilityBg, color: tone.utilityText }}
+            className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ color: tone.utilityText }}
             onClick={() => {
               if (blockDeleteInCloud()) return;
               setDeleteConfirmOpen(true);
@@ -742,13 +812,6 @@ export default function TaskCard({
       {showComplexCardLayout ? (
         <div className="mb-2 mt-1 min-h-0 flex-1">
           <div className="relative h-full min-h-0 overflow-hidden">
-            <div
-              className="pointer-events-none absolute bottom-0 left-[58%] z-[2] w-px"
-              style={{
-                top: `${complexGrooveHeight + 2}px`,
-                backgroundColor: withAlpha(tone.body, 0.28),
-              }}
-            />
             <div className="grid h-full min-h-0 grid-cols-[minmax(0,1.06fr)_minmax(0,0.94fr)] gap-3">
               <div className="min-h-0 min-w-0 pr-2">
                 {showStatusBadge && (
@@ -775,7 +838,7 @@ export default function TaskCard({
                     textDecoration: isCompletedExecution ? 'line-through' : 'none',
                     fontSize: `${isBlockTask ? Math.max(12, titleSize - 2) : complexTitleSize}px`,
                     display: '-webkit-box',
-                    WebkitLineClamp: 2,
+                    WebkitLineClamp: titleLineClamp,
                     WebkitBoxOrient: 'vertical',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -933,7 +996,7 @@ export default function TaskCard({
                 textDecoration: isCompletedExecution ? 'line-through' : 'none',
                 fontSize: `${isBlockTask ? Math.max(12, titleSize - 2) : titleSize}px`,
                 display: '-webkit-box',
-                WebkitLineClamp: 2,
+                WebkitLineClamp: titleLineClamp,
                 WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -953,7 +1016,7 @@ export default function TaskCard({
             >
               {isBlockTask ? blockTitleLabel : task.title}
             </h3>
-            {!isPreview && !isMicro && (
+            {showTaskTypeMeta && (
               <p
                 className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[0.08em]"
                 style={{ color: withAlpha(tone.title, 0.74) }}
@@ -1046,7 +1109,13 @@ export default function TaskCard({
         <div className="mt-auto flex w-full flex-col gap-1.5">
           {!showComplexCardLayout && (
             <div
-              className={`flex min-w-0 ${showVerticalTime ? (useColumnFooter ? 'flex-col items-center' : 'items-start gap-1') : 'items-center gap-2'}`}
+              className={`flex min-w-0 ${
+                showVerticalTime
+                  ? useColumnFooter
+                    ? 'flex-col items-center gap-1 text-center'
+                    : 'items-start gap-1'
+                  : 'items-center gap-2'
+              }`}
             >
               {!isCompact && !showVerticalTime && !showComplexCardLayout && (
                 <Clock className="size-4 shrink-0" style={{ color: tone.body }} />
@@ -1056,7 +1125,7 @@ export default function TaskCard({
                   className={`flex min-w-0 flex-col leading-tight ${useColumnFooter ? 'items-center text-center' : ''}`}
                   style={{
                     color: timestampColor,
-                    fontSize: `${isMicro ? 8 : isUltraTiny ? 9 : Math.max(11, footerSize)}px`,
+                    fontSize: `${isMicro ? 8 : isUltraTiny ? 9 : Math.max(10, footerSize - 1)}px`,
                   }}
                   title={`${startTime} - ${endTime}`}
                 >
@@ -1124,7 +1193,7 @@ export default function TaskCard({
               )}
               <PrimaryActionIcon className="size-3.5 shrink-0" />
               <span
-                className="font-bold leading-none tracking-[-0.02em]"
+                className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-bold leading-none tracking-[-0.02em]"
                 style={{ fontSize: `${isUltraTiny ? 10 : doneSize}px` }}
               >
                 {actionStripState === 'running' ? 'Running · Pause' : primaryActionLabel}
@@ -1233,53 +1302,27 @@ function resolveTaskCardTone(
   }
 
   const normalized = normalizeHexColor(taskBaseColor) ?? '#8d929c';
+  const contrastText = pickReadableTextColor(normalized);
+  const mutedText = withAlpha(contrastText, contrastText === '#f3f3f8' ? 0.76 : 0.72);
+  const accentBase = theme === 'vibrant-pop' ? resolveVibrantAccent(normalized) : contrastText;
+  const buttonText = pickReadableTextColor(accentBase);
   if (theme === 'vibrant-pop') {
-    const family = resolveVibrantFamily(normalized);
-    if (family === 'electric') {
-      const text = '#b7f700';
-      return {
-        background: normalized,
-        title: text,
-        body: withAlpha(text, 0.74),
-        buttonBg: text,
-        buttonText: '#0136fe',
-        utilityBg: withAlpha(text, 0.18),
-        utilityText: text,
-        borderColor: withAlpha(text, 0.26),
-      };
-    }
-    if (family === 'lime') {
-      const text = '#0136fe';
-      return {
-        background: normalized,
-        title: text,
-        body: withAlpha(text, 0.72),
-        buttonBg: text,
-        buttonText: '#b7f700',
-        utilityBg: withAlpha(text, 0.16),
-        utilityText: text,
-        borderColor: withAlpha(text, 0.24),
-      };
-    }
-    const text = '#0f1a36';
     return {
       background: normalized,
-      title: text,
-      body: withAlpha(text, 0.7),
-      buttonBg: '#0136fe',
-      buttonText: normalized,
-      utilityBg: withAlpha(text, 0.14),
-      utilityText: text,
-      borderColor: withAlpha(text, 0.24),
+      title: contrastText,
+      body: mutedText,
+      buttonBg: accentBase,
+      buttonText,
+      utilityBg: withAlpha(contrastText, contrastText === '#f3f3f8' ? 0.18 : 0.12),
+      utilityText: contrastText,
+      borderColor: withAlpha(contrastText, 0.24),
     };
   }
-
-  const contrastText = pickReadableTextColor(normalized);
 
   return {
     background: normalized,
     title: contrastText,
-    body: withAlpha(contrastText, 0.64),
+    body: mutedText,
     buttonBg: contrastText,
     buttonText: normalized,
     utilityBg: withAlpha(contrastText, 0.2),
@@ -1314,6 +1357,29 @@ function buildComplexCardClipPath(input: {
   } ${height} H ${outerRadius} Q 0 ${height} 0 ${height - outerRadius} V ${outerRadius} Q 0 0 ${outerRadius} 0 Z')`;
 }
 
+function buildCompactComplexClipPath(input: {
+  width: number;
+  height: number;
+}): string {
+  const width = Math.max(156, Math.round(input.width));
+  const height = Math.max(108, Math.round(input.height));
+  const outerRadius = clamp(Math.round(Math.min(width, height) * 0.1), 12, 20);
+  const notchDepth = clamp(Math.round(width * 0.14), 18, 34);
+  const notchHeight = clamp(Math.round(height * 0.18), 12, 20);
+  const notchLeft = Math.max(outerRadius + 18, width - notchDepth - outerRadius - 4);
+  const notchCurve = clamp(Math.round(notchHeight * 0.55), 7, 12);
+  const notchMidX = notchLeft + Math.round(notchDepth * 0.42);
+  const notchBottomX = Math.min(width - outerRadius - 4, notchMidX + notchCurve + 6);
+
+  return `path('M ${outerRadius} 0 H ${notchLeft} Q ${notchMidX} 0 ${notchMidX} ${notchCurve} V ${
+    notchHeight - notchCurve
+  } Q ${notchMidX} ${notchHeight} ${notchBottomX} ${notchHeight} H ${width - outerRadius} Q ${width} ${notchHeight} ${width} ${
+    notchHeight + outerRadius - 4
+  } V ${height - outerRadius} Q ${width} ${height} ${width - outerRadius} ${height} H ${outerRadius} Q 0 ${height} 0 ${
+    height - outerRadius
+  } V ${outerRadius} Q 0 0 ${outerRadius} 0 Z')`;
+}
+
 function resolveVibrantFamily(color: string): 'electric' | 'lime' | 'bloom' {
   const electric = ['#0136fe', '#2c6dff', '#5d41ff'];
   const lime = ['#b7f700'];
@@ -1341,6 +1407,13 @@ function resolveVibrantFamily(color: string): 'electric' | 'lime' | 'bloom' {
     }
   });
   return best.family;
+}
+
+function resolveVibrantAccent(color: string): string {
+  const family = resolveVibrantFamily(color);
+  if (family === 'electric') return '#b7f700';
+  if (family === 'lime') return '#0136fe';
+  return '#0136fe';
 }
 
 function pickReadableTextColor(backgroundHex: string): '#0f1a36' | '#f3f3f8' {

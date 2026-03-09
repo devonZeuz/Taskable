@@ -191,6 +191,8 @@
   justify-content: center !important;
   opacity: 1 !important;
   visibility: visible !important;
+  position: relative !important;
+  z-index: 2 !important;
   border-color: color-mix(in srgb, var(--hud-outline) 78%, transparent) !important;
   background: color-mix(in srgb, var(--hud-surface-strong) 92%, transparent) !important;
   color: var(--hud-accent-soft) !important;
@@ -200,9 +202,17 @@
 }
 
 :root[data-onboarding-step='create-task-paths'] [data-onboarding-quick-add='button'] svg {
-  opacity: 1 !important;
+  opacity: 0 !important;
   color: var(--hud-accent-soft) !important;
   stroke-width: 2.35px;
+}
+
+:root[data-onboarding-step='create-task-paths']
+  [data-onboarding-quick-add='button']
+  [data-onboarding-quick-add-glyph='true'] {
+  display: inline-flex !important;
+  color: var(--hud-accent-soft) !important;
+  z-index: 1;
 }
 
 @media (max-width: 820px) {

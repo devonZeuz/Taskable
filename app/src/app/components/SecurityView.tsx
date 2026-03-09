@@ -53,11 +53,11 @@ export default function SecurityView() {
             Security & Privacy
           </p>
           <h1 className="mt-3 text-[clamp(42px,5.6vw,68px)] font-bold leading-[0.95] tracking-[-0.05em]">
-            Security and privacy, explained in product terms.
+            Understand how Tareva handles privacy, sync, and access.
           </h1>
           <p className="mt-4 text-[16px] leading-relaxed text-[var(--hud-muted)]">
-            Tareva already has more engineering discipline than most early-stage productivity tools.
-            This page turns that into a public-facing summary users and internal stakeholders can read quickly.
+            This summary explains what stays on your device, what changes when cloud sync is enabled,
+            and which controls exist today for account security and collaboration.
           </p>
         </div>
 
@@ -78,23 +78,22 @@ export default function SecurityView() {
         <div className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="rounded-[26px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
-              Current product note
+              What this page is
             </p>
             <p className="mt-3 text-sm leading-relaxed text-[var(--hud-muted)]">
-              This summary is a plain-language overview of implemented protections and controls in the current product.
-              It is not a legal policy or a substitute for formal vendor review. As the product matures, this should expand
-              into full privacy, terms, and security documentation.
+              This is a plain-language overview of the current product protections and controls. It
+              is meant to help users and pilot teams understand how the product behaves today.
             </p>
           </section>
 
           <aside className="rounded-[26px] border border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface-strong)_88%,transparent)] p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
-              Next surfaces
+              Need more detail?
             </p>
             <div className="mt-4 space-y-3 text-sm text-[var(--hud-muted)]">
-              <p>Publish a formal privacy policy.</p>
-              <p>Publish terms of use.</p>
-              <p>Add a security review changelog for releases.</p>
+              <p>Open the support page to report an issue or ask a question.</p>
+              <p>Use local mode if you want to keep planning data on this device.</p>
+              <p>Use cloud mode if you need sync, shared access, or team coordination.</p>
             </div>
             <Button
               asChild

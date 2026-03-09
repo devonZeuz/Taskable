@@ -84,7 +84,7 @@ export default function BlockTaskButton({ defaultAssignee, scheduleTasks }: Bloc
       defaultAssignee === 'unassigned' || defaultAssignee === 'all' ? undefined : defaultAssignee;
 
     addTask({
-      title: 'BLOCK',
+      title: 'Block',
       description: '',
       startDateTime: combineDayAndTime(todayKey, selectedSlot.startTime).toISOString(),
       durationMinutes,

@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Check, Pause, Play, RotateCcw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Task, useTasks } from '../context/TaskContext';
 import { useCloudSync } from '../context/CloudSyncContext';
-import { useNotificationSettings } from '../context/NotificationSettingsContext';
 import { useWorkday } from '../context/WorkdayContext';
 import { useUserPreferences } from '../context/UserPreferencesContext';
 import {
@@ -44,7 +43,6 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
     isTaskConflictLocked,
     openConflictResolver,
   } = useCloudSync();
-  const { hasActiveEndPrompt } = useNotificationSettings();
   const { workday } = useWorkday();
   const {
     preferences: { slotMinutes, autoShoveOnExtend },
@@ -68,8 +66,10 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
   const actionsDisabled = isLockedByOther || isConflictLocked || !canWriteTasks;
   const canForceTakeover = activeOrgRole === 'owner' || activeOrgRole === 'admin';
   const [takeoverPending, setTakeoverPending] = useState(false);
+  const suppressCloseUntilRef = useRef(0);
+  const closeArmedRef = useRef(false);
 
-  if (!currentTask || hasActiveEndPrompt || currentTask.type === 'block') return null;
+  if (!currentTask || currentTask.type === 'block') return null;
 
   const status = normalizeExecutionStatus(currentTask);
   const isRunning = status === 'running';
@@ -90,8 +90,8 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
       toast.error(`${lock?.userName ?? 'Someone'} is editing this task.`);
       return;
     }
+    suppressCloseUntilRef.current = Date.now() + 1200;
     action();
-    onClose();
   };
 
   const handleTakeover = async () => {
@@ -201,7 +201,7 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
       return;
     }
     if (result.outcome === 'outside_workday') {
-      toast.error('Cannot extend beyond current workday.');
+      toast.error('Cannot extend past the end of the day.');
       return;
     }
     if (result.outcome === 'conflict') {
@@ -257,6 +257,8 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
       <div
         data-testid="task-quick-actions-hub"
         className="pointer-events-auto ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-2 ui-v1-elevation-2 backdrop-blur-md"
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -267,7 +269,17 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
           <button
             type="button"
             data-testid="task-quick-actions-close"
-            onClick={onClose}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              closeArmedRef.current = true;
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (!closeArmedRef.current) return;
+              closeArmedRef.current = false;
+              if (Date.now() < suppressCloseUntilRef.current) return;
+              onClose();
+            }}
             className="flex h-6.5 w-6.5 items-center justify-center ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] text-[color:var(--hud-text)] opacity-85 transition-colors hover:brightness-105 hover:opacity-100"
             title="Close actions"
           >
@@ -279,7 +291,9 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
           <button
             type="button"
             disabled={actionsDisabled}
-            onClick={() =>
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
               runGuarded(() => {
                 if (isCompleted) {
                   reopenTask(currentTask.id);
@@ -294,8 +308,8 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
                   return;
                 }
                 startTask(currentTask.id);
-              })
-            }
+              });
+            }}
             className="inline-flex h-8 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-2 text-[11px] font-semibold text-[color:var(--hud-text)] disabled:cursor-not-allowed disabled:opacity-55"
           >
             <PrimaryIcon className="size-3.5" />
@@ -306,7 +320,11 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
             <button
               type="button"
               disabled={actionsDisabled}
-              onClick={() => runGuarded(() => completeTask(currentTask.id))}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                runGuarded(() => completeTask(currentTask.id));
+              }}
               className="inline-flex h-8 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-soft)] px-2 text-[11px] font-semibold text-[var(--hud-accent-soft-text)] disabled:cursor-not-allowed disabled:opacity-55"
             >
               <Check className="size-3.5" />
@@ -318,11 +336,13 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
             <button
               type="button"
               disabled={actionsDisabled}
-              onClick={() =>
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
                 runGuarded(() => {
                   runExtendToNow();
-                })
-              }
+                });
+              }}
               className="inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-transparent px-2 text-[11px] font-semibold text-[color:var(--hud-text)] opacity-85 disabled:cursor-not-allowed disabled:opacity-55"
             >
               Extend
@@ -333,7 +353,11 @@ export default function TaskQuickActionsHub({ task, onClose }: TaskQuickActionsH
             <button
               type="button"
               disabled={actionsDisabled}
-              onClick={() => runGuarded(runRescheduleRemaining)}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                runGuarded(runRescheduleRemaining);
+              }}
               className="inline-flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap ui-v1-radius-sm border border-[color:var(--hud-border)] bg-transparent px-2 text-[11px] font-semibold text-[color:var(--hud-text)] opacity-85 disabled:cursor-not-allowed disabled:opacity-55"
             >
               Next

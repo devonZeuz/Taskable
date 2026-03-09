@@ -70,11 +70,11 @@ export default function SupportView() {
             Support
           </p>
           <h1 className="mt-3 text-[clamp(42px,5.6vw,68px)] font-bold leading-[0.95] tracking-[-0.05em]">
-            A support surface that feels like a product, not an afterthought.
+            Get help without guessing where to start.
           </h1>
           <p className="mt-4 text-[16px] leading-relaxed text-[var(--hud-muted)]">
-            Keep support simple at the start: one clear contact channel, one copyable support packet,
-            and a short self-serve path to security and product-tour pages.
+            If something breaks or feels unclear, use the support packet below and one direct contact
+            path. You do not need to explain your environment from scratch every time.
           </p>
         </div>
 
@@ -91,7 +91,7 @@ export default function SupportView() {
                 </p>
                 <p className="mt-2 text-sm font-semibold text-[var(--hud-text)]">Describe the issue</p>
                 <p className="mt-1 text-[13px] leading-relaxed text-[var(--hud-muted)]">
-                  Capture what happened, what you expected, and whether it blocks work.
+                  Say what happened, what you expected, and whether it blocks work.
                 </p>
               </article>
               <article className="rounded-[20px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
@@ -100,7 +100,7 @@ export default function SupportView() {
                 </p>
                 <p className="mt-2 text-sm font-semibold text-[var(--hud-text)]">Copy the packet</p>
                 <p className="mt-1 text-[13px] leading-relaxed text-[var(--hud-muted)]">
-                  Share app version, route, timezone, and browser details without manual back-and-forth.
+                  Share app version, route, timezone, and browser details without back-and-forth.
                 </p>
               </article>
               <article className="rounded-[20px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
@@ -109,7 +109,7 @@ export default function SupportView() {
                 </p>
                 <p className="mt-2 text-sm font-semibold text-[var(--hud-text)]">Use one contact path</p>
                 <p className="mt-1 text-[13px] leading-relaxed text-[var(--hud-muted)]">
-                  Start with one email channel before investing in ticketing or chat widgets.
+                  Send one clear report instead of hunting through multiple channels.
                 </p>
               </article>
             </div>
@@ -131,7 +131,7 @@ export default function SupportView() {
                 Contact channel
               </div>
               <p className="mt-3 text-sm leading-relaxed text-[var(--hud-muted)]">
-                Keep support simple at launch: one direct contact path and one copyable support packet.
+                Start with one direct contact path and one copyable support packet.
               </p>
               {mailToHref ? (
                 <Button
@@ -143,7 +143,7 @@ export default function SupportView() {
                 </Button>
               ) : (
                 <div className="mt-4 rounded-[18px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-3 text-[13px] text-[var(--hud-muted)]">
-                  No support email configured yet.
+                  Support email is not configured yet.
                 </div>
               )}
               <Button

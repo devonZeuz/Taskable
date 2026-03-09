@@ -89,39 +89,84 @@ function parseQuickAddMinutes(testId: string): number | null {
   return hours * 60 + minutes;
 }
 
-function getPreferredQuickAddTargets(): HTMLElement[] {
-  const allCells = getVisibleElements(['[data-testid^="quick-add-cell-"]']);
-  if (allCells.length === 0) return [];
+function getLocalDayKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
+function parseQuickAddSlot(testId: string) {
+  const match = testId.match(/^quick-add-(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/);
+  if (!match) return null;
+  return { dayKey: match[1], time: match[2] };
+}
+
+function getPreferredQuickAddTargetData(): {
+  cell: HTMLElement;
+  button: HTMLElement;
+  dayKey: string;
+  time: string;
+} | null {
   const nowIndicator = document.querySelector<HTMLElement>('[data-testid="timeline-now-indicator"]');
-  const nowColumn = nowIndicator?.closest<HTMLElement>('[data-testid^="day-column-"]') ?? null;
-  const candidateCells =
-    nowColumn ? allCells.filter((cell) => nowColumn.contains(cell)) : allCells;
-  const usableCells = candidateCells.length > 0 ? candidateCells : allCells;
-  const roundedNow = new Date();
-  roundedNow.setMinutes(Math.ceil(roundedNow.getMinutes() / 15) * 15, 0, 0);
-  const targetMinutes = roundedNow.getHours() * 60 + roundedNow.getMinutes();
+  const currentNow = new Date();
+  currentNow.setSeconds(0, 0);
+  const targetHour = new Date(currentNow);
+  targetHour.setMinutes(0, 0, 0);
+  const todayKey = getLocalDayKey(targetHour);
+  const todayColumn =
+    nowIndicator?.closest<HTMLElement>('[data-testid^="day-column-"]') ??
+    document.querySelector<HTMLElement>(`[data-testid="day-column-${todayKey}"]`);
+  const allButtons = getVisibleElements(['[data-testid^="quick-add-"]']).filter((element) =>
+    /^quick-add-\d{4}-\d{2}-\d{2}-\d{2}:\d{2}$/.test(element.getAttribute('data-testid') ?? '')
+  );
+  if (allButtons.length === 0) return null;
 
-  const preferredCell =
-    usableCells
-      .map((cell) => {
-        const testId = cell.getAttribute('data-testid') ?? '';
-        const button = cell.querySelector<HTMLElement>('[data-testid^="quick-add-"]');
-        const buttonTestId = button?.getAttribute('data-testid') ?? '';
-        const minutes = parseQuickAddMinutes(buttonTestId || testId);
+  const usableButtons = todayColumn
+    ? allButtons.filter((button) => todayColumn.contains(button))
+    : allButtons;
+  const candidateButtons = usableButtons.length > 0 ? usableButtons : allButtons;
+  const targetMinutes = targetHour.getHours() * 60 + targetHour.getMinutes();
+
+  const exactButton = candidateButtons.find((button) => {
+    const slot = parseQuickAddSlot(button.getAttribute('data-testid') ?? '');
+    return slot?.dayKey === todayKey && slot.time === `${String(targetHour.getHours()).padStart(2, '0')}:00`;
+  });
+
+  const preferredButton =
+    exactButton ??
+    candidateButtons
+      .map((button) => {
+        const testId = button.getAttribute('data-testid') ?? '';
+        const minutes = parseQuickAddMinutes(testId);
         if (minutes === null) return null;
         return {
-          cell,
+          button,
           delta: Math.abs(minutes - targetMinutes),
         };
       })
-      .filter((entry): entry is { cell: HTMLElement; delta: number } => Boolean(entry))
-      .sort((left, right) => left.delta - right.delta)[0]?.cell ??
-    usableCells[0];
+      .filter((entry): entry is { button: HTMLElement; delta: number } => Boolean(entry))
+      .sort((left, right) => left.delta - right.delta)[0]?.button ??
+    candidateButtons[0];
 
-  if (!preferredCell) return [];
-  const button = preferredCell.querySelector<HTMLElement>('[data-testid^="quick-add-"]');
-  return button ? [preferredCell, button] : [preferredCell];
+  if (!preferredButton) return null;
+  const preferredCell =
+    preferredButton.closest<HTMLElement>('[data-testid^="quick-add-cell-"]') ?? preferredButton;
+  const preferredSlot = parseQuickAddSlot(preferredButton.getAttribute('data-testid') ?? '');
+  return {
+    cell: preferredCell,
+    button: preferredButton,
+    dayKey: preferredSlot?.dayKey ?? todayKey,
+    time:
+      preferredSlot?.time ??
+      `${String(targetHour.getHours()).padStart(2, '0')}:00`,
+  };
+}
+
+function getPreferredQuickAddTargets(): HTMLElement[] {
+  const targetData = getPreferredQuickAddTargetData();
+  if (!targetData) return [];
+  return [targetData.cell, targetData.button];
 }
 
 function ensureDailyPlanningExpanded() {
@@ -187,8 +232,13 @@ export default function OnboardingTutorialModal({
       return existingTaskId;
     }
 
-    const startDate = new Date();
-    startDate.setMinutes(Math.ceil(startDate.getMinutes() / 15) * 15, 0, 0);
+    const quickAddTarget = getPreferredQuickAddTargetData();
+    const startDate = quickAddTarget
+      ? new Date(`${quickAddTarget.dayKey}T${quickAddTarget.time}:00`)
+      : new Date();
+    if (!quickAddTarget) {
+      startDate.setMinutes(Math.ceil(startDate.getMinutes() / 15) * 15, 0, 0);
+    }
 
     const task = addTask(
       {
@@ -752,7 +802,7 @@ export default function OnboardingTutorialModal({
             data-testid={isLast ? 'onboarding-tutorial-finish' : 'onboarding-tutorial-next'}
             className="onboarding-spotlight-btn is-primary"
           >
-            {isLast ? 'Start using app' : 'Next'}
+            {isLast ? 'Finish' : 'Next'}
           </Button>
         </div>
       </div>

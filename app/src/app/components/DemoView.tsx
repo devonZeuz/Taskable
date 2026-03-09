@@ -50,11 +50,11 @@ export default function DemoView() {
             Product Tour
           </p>
           <h1 className="mt-3 max-w-[780px] text-[clamp(42px,6vw,72px)] font-bold leading-[0.94] tracking-[-0.05em]">
-            Show the product in 90 seconds, not 15 minutes.
+            See how Tareva turns a messy day into a workable plan.
           </h1>
           <p className="mt-4 max-w-[640px] text-[16px] leading-relaxed text-[var(--hud-muted)]">
-            This page is the walkthrough surface for Tareva. Use it as the public product tour now,
-            then attach a hosted video later when the recorded walkthrough is ready.
+            This tour shows the core workflow quickly: capture work, place it on a real timeline,
+            and adjust as the day changes.
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">
@@ -82,7 +82,7 @@ export default function DemoView() {
               </Button>
             ) : (
               <div className="inline-flex min-h-11 items-center rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-5 text-[13px] text-[var(--hud-muted)]">
-                Hosted demo link available when the walkthrough is published.
+                Hosted video will appear here when the walkthrough is published.
               </div>
             )}
           </div>
@@ -115,7 +115,7 @@ export default function DemoView() {
             <div className="rounded-[20px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
               <p className="text-sm font-semibold text-[var(--hud-text)]">1. Open on the landing page</p>
               <p className="mt-1 text-[13px] leading-relaxed text-[var(--hud-muted)]">
-                Lead with the promise: realistic daily planning plus live execution.
+                Open with the problem: work keeps changing, and the day rarely stays neat.
               </p>
             </div>
             <div className="rounded-[20px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
@@ -127,7 +127,7 @@ export default function DemoView() {
             <div className="rounded-[20px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
               <p className="text-sm font-semibold text-[var(--hud-text)]">3. End on trust and support</p>
               <p className="mt-1 text-[13px] leading-relaxed text-[var(--hud-muted)]">
-                Close with security, privacy, and the fact that local and cloud modes are both first-class.
+                Close with privacy, support, and the choice between local use and cloud sync.
               </p>
             </div>
           </div>
@@ -138,8 +138,8 @@ export default function DemoView() {
               Demo goal
             </div>
             <p className="mt-2 text-sm leading-relaxed text-[var(--hud-muted)]">
-              The viewer should understand who Tareva is for, how the workflow feels, and why it is
-              different from a static task list before the video ends.
+              By the end, the viewer should understand what Tareva is, who it is for, and why it is
+              different from a basic scheduler or task list.
             </p>
           </div>
         </aside>

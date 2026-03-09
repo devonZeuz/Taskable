@@ -16,7 +16,6 @@ test('spotlight onboarding highlights live planner controls and opens settings',
 
   await page.getByTestId('onboarding-tutorial-next').click();
   await expect(page.locator('html')).toHaveAttribute('data-onboarding-step', 'create-task-paths');
-  await expect(page.getByTestId('add-task-trigger').first()).toBeVisible();
   const quickAddButton = page.locator('[data-onboarding-quick-add="button"]').first();
   await expect(quickAddButton).toBeVisible();
   await expect

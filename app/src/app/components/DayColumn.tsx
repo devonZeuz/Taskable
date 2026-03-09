@@ -17,6 +17,7 @@ import {
   minutesToTime,
   timeToMinutes,
 } from '../services/scheduling';
+import { buildBlockShiftPlan } from '../services/blockScheduling';
 import {
   buildForwardShovePlan,
   countOverlapsAtTarget,
@@ -39,6 +40,11 @@ interface DayColumnProps {
   showQuickAdd?: boolean;
   defaultAssignee?: string;
   scheduleTasks?: Task[];
+  onRequestCreateTask?: (defaults: {
+    day: string;
+    time: string;
+    assignee?: string;
+  }) => void;
 }
 
 interface HoverPreview {
@@ -46,11 +52,19 @@ interface HoverPreview {
   durationMinutes: number;
   laneIndex: number;
   isComplexShape: boolean;
+  isBlockShape: boolean;
   canShove: boolean;
   shoveMoves: ShoveMove[];
 }
 
-const SHOVE_HOVER_MS = 550;
+interface LaneLayoutResult {
+  tasks: Task[];
+  layoutById: Map<string, number>;
+  stackedById: Map<string, boolean>;
+  laneCount: number;
+  laneTrackHeight: number;
+}
+
 const VIEWPORT_DENSITY_SCALE = 0.8125;
 
 function scaleDensityPx(value: number): number {
@@ -69,6 +83,7 @@ export default function DayColumn({
   showQuickAdd = true,
   defaultAssignee,
   scheduleTasks,
+  onRequestCreateTask,
 }: DayColumnProps) {
   const { tasks, addTask, moveTask, moveTasksAtomic, updateTask } = useTasks();
   const { workday } = useWorkday();
@@ -79,7 +94,7 @@ export default function DayColumn({
   const deterministicDndMode = isDeterministicDndMode();
   const scheduleScopeTasks = scheduleTasks ?? tasks;
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const hoverIntentRef = useRef<{ key: string; since: number }>({ key: '', since: 0 });
+  const isShiftPressedRef = useRef(false);
   const [hoverPreview, setHoverPreview] = useState<HoverPreview | null>(null);
   const [shoveIntentActive, setShoveIntentActive] = useState(false);
   const [isShiftPressed, setIsShiftPressed] = useState(false);
@@ -162,10 +177,16 @@ export default function DayColumn({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Shift') setIsShiftPressed(true);
+      if (event.key === 'Shift') {
+        isShiftPressedRef.current = true;
+        setIsShiftPressed(true);
+      }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'Shift') setIsShiftPressed(false);
+      if (event.key === 'Shift') {
+        isShiftPressedRef.current = false;
+        setIsShiftPressed(false);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -260,99 +281,89 @@ export default function DayColumn({
     [axisStartMinutes, laneStaggerOffset, slotMinutes, slotsPerHour]
   );
 
-  const getPreviewLaneIndex = useCallback(
-    (
-      startMinutes: number,
-      durationMinutes: number,
-      draggedTaskId: string,
-      draggedIsComplex: boolean
-    ) => {
-      const endMinutes = startMinutes + durationMinutes;
-      const draggedOrderIndex = taskOrderIndexById.get(draggedTaskId) ?? Number.MAX_SAFE_INTEGER;
-      const hasDraggedInDay = dayTasks.some((task) => task.id === draggedTaskId);
+  const buildLaneLayout = useCallback(
+    (inputTasks: Task[]): LaneLayoutResult => {
+      const sortedTasks = [...inputTasks].sort(
+        (a, b) => getTaskInterval(a).startMinutes - getTaskInterval(b).startMinutes
+      );
+      const layoutById = new Map<string, number>();
+      const stackedById = new Map<string, boolean>();
+      let laneCount = 1;
 
-      const intervals = dayTasks
-        .map((task) => {
-          const interval =
-            task.id === draggedTaskId ? { startMinutes, endMinutes } : getTaskInterval(task);
-          return {
-            taskId: task.id,
-            startMinutes: interval.startMinutes,
-            endMinutes: interval.endMinutes,
-            orderIndex: taskOrderIndexById.get(task.id) ?? Number.MAX_SAFE_INTEGER,
-            isComplex: task.type === 'large',
-          };
-        })
-        .concat(
-          hasDraggedInDay
-            ? []
-            : [
-                {
-                  taskId: draggedTaskId,
-                  startMinutes,
-                  endMinutes,
-                  orderIndex: draggedOrderIndex,
-                  isComplex: draggedIsComplex,
-                },
-              ]
-        )
-        .sort((a, b) => {
-          if (a.startMinutes !== b.startMinutes) {
-            return a.startMinutes - b.startMinutes;
-          }
-          return a.orderIndex - b.orderIndex;
-        });
-
-      let currentGroup: typeof intervals = [];
+      const overlapGroups: Task[][] = [];
+      let currentGroup: Task[] = [];
       let currentGroupEnd = Number.NEGATIVE_INFINITY;
-      let draggedLaneIndex = 0;
 
-      const flushGroup = () => {
-        if (currentGroup.length === 0) return;
-        const laneOrderedGroup = [...currentGroup].sort((a, b) => {
-          if (a.isComplex !== b.isComplex) {
-            return a.isComplex ? 1 : -1;
-          }
-          if (a.startMinutes !== b.startMinutes) {
-            return a.startMinutes - b.startMinutes;
-          }
-          return a.orderIndex - b.orderIndex;
-        });
+      sortedTasks.forEach((task) => {
+        const interval = getTaskInterval(task);
+        if (currentGroup.length === 0) {
+          currentGroup.push(task);
+          currentGroupEnd = interval.endMinutes;
+          return;
+        }
+
+        if (interval.startMinutes < currentGroupEnd) {
+          currentGroup.push(task);
+          currentGroupEnd = Math.max(currentGroupEnd, interval.endMinutes);
+          return;
+        }
+
+        overlapGroups.push(currentGroup);
+        currentGroup = [task];
+        currentGroupEnd = interval.endMinutes;
+      });
+
+      if (currentGroup.length > 0) {
+        overlapGroups.push(currentGroup);
+      }
+
+      overlapGroups.forEach((group) => {
         const laneEnds: number[] = [];
-        laneOrderedGroup.forEach((interval) => {
-          let laneIndex = laneEnds.findIndex((laneEnd) => interval.startMinutes >= laneEnd);
+        const isStackedGroup = group.length > 1;
+        const laneOrderedGroup = [...group].sort((a, b) => {
+          const aIsComplex = a.type === 'large';
+          const bIsComplex = b.type === 'large';
+          if (aIsComplex !== bIsComplex) {
+            return aIsComplex ? 1 : -1;
+          }
+          const aStart = getTaskInterval(a).startMinutes;
+          const bStart = getTaskInterval(b).startMinutes;
+          if (aStart !== bStart) {
+            return aStart - bStart;
+          }
+          return (
+            (taskOrderIndexById.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+            (taskOrderIndexById.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+          );
+        });
+
+        laneOrderedGroup.forEach((task) => {
+          const interval = getTaskInterval(task);
+          let laneIndex = laneEnds.findIndex((end) => interval.startMinutes >= end);
+
           if (laneIndex === -1) {
             laneIndex = laneEnds.length;
             laneEnds.push(interval.endMinutes);
           } else {
             laneEnds[laneIndex] = interval.endMinutes;
           }
-          if (interval.taskId === draggedTaskId) {
-            draggedLaneIndex = laneIndex;
-          }
-        });
-      };
 
-      intervals.forEach((interval) => {
-        if (currentGroup.length === 0) {
-          currentGroup = [interval];
-          currentGroupEnd = interval.endMinutes;
-          return;
-        }
-        if (interval.startMinutes < currentGroupEnd) {
-          currentGroup.push(interval);
-          currentGroupEnd = Math.max(currentGroupEnd, interval.endMinutes);
-          return;
-        }
-        flushGroup();
-        currentGroup = [interval];
-        currentGroupEnd = interval.endMinutes;
+          layoutById.set(task.id, laneIndex);
+          stackedById.set(task.id, isStackedGroup);
+        });
+
+        laneCount = Math.max(laneCount, laneEnds.length);
       });
 
-      flushGroup();
-      return draggedLaneIndex;
+      return {
+        tasks: sortedTasks,
+        layoutById,
+        stackedById,
+        laneCount: Math.max(1, laneCount),
+        laneTrackHeight: laneMinHeight + laneStaggerOffset,
+      };
     },
-    [dayTasks, taskOrderIndexById]
+    [laneMinHeight, laneStaggerOffset, taskOrderIndexById]
   );
 
   const overlapsBlockedWindow = useCallback(
@@ -417,6 +428,17 @@ export default function DayColumn({
         const rawIndex = Math.round((cursorMinutes - axisStartMinutes) / slotMinutes);
         const startIndex = Math.min(Math.max(rawIndex, 0), maxStartIndex);
         const startMinutes = axisStartMinutes + startIndex * slotMinutes;
+        const blockShiftPlan =
+          draggedTask.type === 'block'
+            ? buildBlockShiftPlan(
+                scheduleScopeTasks,
+                day,
+                startMinutes,
+                durationMinutes,
+                draggedTask.id,
+                workday
+              )
+            : null;
         const blockedWindow =
           draggedTask.type !== 'block' &&
           overlapsBlockedWindow(startMinutes, durationMinutes, draggedTask.id);
@@ -441,35 +463,65 @@ export default function DayColumn({
           durationMinutes,
           draggedTask.id
         );
-        const canShove = shovePlan !== null && shovePlan.length > 0;
-        const hoverKey = `${draggedTask.id}:${day}:${startMinutes}`;
-        const now = Date.now();
-        let shoveByHover = false;
+        const shiftMode = isShiftPressedRef.current;
+        const canShove =
+          draggedTask.type !== 'block' && shovePlan !== null && shovePlan.length > 0;
+        setShoveIntentActive((prev) => (prev === shiftMode ? prev : shiftMode));
 
-        if (hoverIntentRef.current.key !== hoverKey) {
-          hoverIntentRef.current = { key: hoverKey, since: now };
-        } else if (
-          canShove &&
-          overlapCount > 0 &&
-          now - hoverIntentRef.current.since >= SHOVE_HOVER_MS
-        ) {
-          shoveByHover = true;
-        }
+        const previewShoveMoves =
+          draggedTask.type === 'block'
+            ? (blockShiftPlan?.moves
+                .filter((move) => move.toDayKey === day)
+                .map((move) => ({
+                  task: move.task,
+                  fromStartMinutes: move.fromStartMinutes,
+                  toStartMinutes: move.toStartMinutes,
+                })) ?? [])
+            : shiftMode
+              ? shovePlan ?? []
+              : [];
 
-        setShoveIntentActive((prev) => (prev === shoveByHover ? prev : shoveByHover));
+        const previewLaneIndex = (() => {
+          if (draggedTask.type === 'block') return 0;
+          const previewTask: Task = {
+            ...draggedTask,
+            startDateTime: combineDayAndTime(day, minutesToTime(startMinutes)).toISOString(),
+            durationMinutes,
+          };
+
+          if (shiftMode && shovePlan && shovePlan.length > 0) {
+            const shoveMovesById = new Map(
+              shovePlan.map((move) => [
+                move.task.id,
+                combineDayAndTime(day, minutesToTime(move.toStartMinutes)).toISOString(),
+              ])
+            );
+            const previewTasks = dayTasks
+              .filter((task) => task.id !== draggedTask.id)
+              .map((task) =>
+                shoveMovesById.has(task.id)
+                  ? { ...task, startDateTime: shoveMovesById.get(task.id) }
+                  : task
+              );
+            const previewLayout = buildLaneLayout([...previewTasks, previewTask]);
+            return previewLayout.layoutById.get(draggedTask.id) ?? 0;
+          }
+
+          const previewTasks = dayTasks.some((task) => task.id === draggedTask.id)
+            ? dayTasks.map((task) => (task.id === draggedTask.id ? previewTask : task))
+            : [...dayTasks, previewTask];
+          const previewLayout = buildLaneLayout(previewTasks);
+          return previewLayout.layoutById.get(draggedTask.id) ?? 0;
+        })();
 
         setHoverPreview({
           startMinutes,
           durationMinutes,
-          laneIndex: getPreviewLaneIndex(
-            startMinutes,
-            durationMinutes,
-            draggedTask.id,
-            draggedTask.type === 'large'
-          ),
+          laneIndex: previewLaneIndex,
           isComplexShape: draggedTask.type === 'large' && draggedTask.subtasks.length > 0,
+          isBlockShape: draggedTask.type === 'block',
           canShove,
-          shoveMoves: shovePlan ?? [],
+          shoveMoves: previewShoveMoves,
         });
       },
       drop: (item: { id: string }, monitor) => {
@@ -559,9 +611,49 @@ export default function DayColumn({
         const startMinutes = axisStartMinutes + startIndex * slotMinutes;
         const startTime = minutesToTime(startMinutes);
         const startDateTime = combineDayAndTime(day, startTime).toISOString();
-        const blockedWindow =
-          draggedTask.type !== 'block' &&
-          overlapsBlockedWindow(startMinutes, durationMinutes, draggedTask.id);
+        if (draggedTask.type === 'block') {
+          const blockShiftPlan = buildBlockShiftPlan(
+            scheduleScopeTasks,
+            day,
+            startMinutes,
+            durationMinutes,
+            draggedTask.id,
+            workday
+          );
+          if (blockShiftPlan === null) {
+            toast.error(
+              'That block collides with reserved time or leaves no later slot for the work it covers.'
+            );
+            setHoverPreview(null);
+            logDropSample('block_shift_blocked');
+            return;
+          }
+
+          moveTasksAtomic([
+            ...blockShiftPlan.moves.map((move) => ({
+              id: move.task.id,
+              startDateTime: move.startDateTime,
+            })),
+            { id: item.id, startDateTime },
+          ]);
+          toast.success(
+            blockShiftPlan.moves.length > 0
+              ? `Block moved to ${startTime}. Shifted ${blockShiftPlan.moves.length} task${
+                  blockShiftPlan.moves.length === 1 ? '' : 's'
+                }.`
+              : `Block moved to ${startTime}.`
+          );
+          if (soundEffectsEnabled) {
+            playCalendarSnapSound();
+          }
+          setShoveIntentActive(false);
+          setHoverPreview(null);
+          logDropSample('block_shift_applied', {
+            movedTasks: blockShiftPlan.moves.length + 1,
+          });
+          return;
+        }
+        const blockedWindow = overlapsBlockedWindow(startMinutes, durationMinutes, draggedTask.id);
         if (blockedWindow) {
           const nextSlot = findNextAvailableSlotAfter(
             scheduleScopeTasks,
@@ -580,7 +672,6 @@ export default function DayColumn({
           } else {
             toast.error('That time is blocked and no free slot was found.');
           }
-          hoverIntentRef.current = { key: '', since: 0 };
           setShoveIntentActive(false);
           setHoverPreview(null);
           logDropSample('blocked_window', { overlapCount: 1 });
@@ -602,14 +693,9 @@ export default function DayColumn({
           durationMinutes,
           draggedTask.id
         );
+        const shiftMode = isShiftPressedRef.current;
         const canShove = shovePlan !== null && shovePlan.length > 0;
-        const hoverKey = `${draggedTask.id}:${day}:${startMinutes}`;
-        const hoverDwellShove =
-          hoverIntentRef.current.key === hoverKey &&
-          Date.now() - hoverIntentRef.current.since >= SHOVE_HOVER_MS &&
-          overlapCount > 0 &&
-          canShove;
-        const shouldShove = canShove && (isShiftPressed || hoverDwellShove);
+        const shouldShove = canShove && shiftMode;
 
         if (shouldShove) {
           if (shovePlan === null) {
@@ -635,7 +721,6 @@ export default function DayColumn({
           if (soundEffectsEnabled) {
             playCalendarSnapSound();
           }
-          hoverIntentRef.current = { key: '', since: 0 };
           setShoveIntentActive(false);
           setHoverPreview(null);
           logDropSample('shove_applied', {
@@ -654,7 +739,6 @@ export default function DayColumn({
         if (soundEffectsEnabled) {
           playCalendarSnapSound();
         }
-        hoverIntentRef.current = { key: '', since: 0 };
         setShoveIntentActive(false);
         setHoverPreview(null);
         logDropSample(overlapCount > 0 ? 'stacked' : 'moved', {
@@ -680,7 +764,7 @@ export default function DayColumn({
       workdayMinutes,
       conflictedTaskIds,
       isShiftPressed,
-      getPreviewLaneIndex,
+      buildLaneLayout,
       overlapsBlockedWindow,
       day,
       dayLockedByOther,
@@ -743,7 +827,6 @@ export default function DayColumn({
 
   useEffect(() => {
     if (!isOver) {
-      hoverIntentRef.current = { key: '', since: 0 };
       setShoveIntentActive(false);
       setHoverPreview(null);
     }
@@ -846,89 +929,7 @@ export default function DayColumn({
     ]
   );
 
-  const laneLayout = useMemo(() => {
-    const sortedTasks = [...dayTasks].sort(
-      (a, b) => getTaskInterval(a).startMinutes - getTaskInterval(b).startMinutes
-    );
-    const layoutById = new Map<string, number>();
-    const stackedById = new Map<string, boolean>();
-    let laneCount = 1;
-
-    const overlapGroups: Task[][] = [];
-    let currentGroup: Task[] = [];
-    let currentGroupEnd = Number.NEGATIVE_INFINITY;
-
-    sortedTasks.forEach((task) => {
-      const interval = getTaskInterval(task);
-      if (currentGroup.length === 0) {
-        currentGroup.push(task);
-        currentGroupEnd = interval.endMinutes;
-        return;
-      }
-
-      if (interval.startMinutes < currentGroupEnd) {
-        currentGroup.push(task);
-        currentGroupEnd = Math.max(currentGroupEnd, interval.endMinutes);
-        return;
-      }
-
-      overlapGroups.push(currentGroup);
-      currentGroup = [task];
-      currentGroupEnd = interval.endMinutes;
-    });
-
-    if (currentGroup.length > 0) {
-      overlapGroups.push(currentGroup);
-    }
-
-    overlapGroups.forEach((group) => {
-      const laneEnds: number[] = [];
-      const isStackedGroup = group.length > 1;
-      const laneOrderedGroup = [...group].sort((a, b) => {
-        const aIsComplex = a.type === 'large';
-        const bIsComplex = b.type === 'large';
-        if (aIsComplex !== bIsComplex) {
-          return aIsComplex ? 1 : -1;
-        }
-        const aStart = getTaskInterval(a).startMinutes;
-        const bStart = getTaskInterval(b).startMinutes;
-        if (aStart !== bStart) {
-          return aStart - bStart;
-        }
-        return (
-          (taskOrderIndexById.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
-          (taskOrderIndexById.get(b.id) ?? Number.MAX_SAFE_INTEGER)
-        );
-      });
-
-      laneOrderedGroup.forEach((task) => {
-        const interval = getTaskInterval(task);
-        let laneIndex = laneEnds.findIndex((end) => interval.startMinutes >= end);
-
-        if (laneIndex === -1) {
-          laneIndex = laneEnds.length;
-          laneEnds.push(interval.endMinutes);
-        } else {
-          laneEnds[laneIndex] = interval.endMinutes;
-        }
-
-        layoutById.set(task.id, laneIndex);
-        stackedById.set(task.id, isStackedGroup);
-      });
-
-      laneCount = Math.max(laneCount, laneEnds.length);
-    });
-
-    const laneTrackHeight = laneMinHeight + laneStaggerOffset;
-
-    return {
-      tasks: sortedTasks,
-      layoutById,
-      stackedById,
-      laneCount: Math.max(1, laneCount),
-      laneTrackHeight,
-    };
-  }, [dayTasks, laneMinHeight, laneStaggerOffset, taskOrderIndexById]);
+  const laneLayout = useMemo(() => buildLaneLayout(dayTasks), [buildLaneLayout, dayTasks]);
 
   const nowIndicatorX = useMemo(() => {
     if (!isTodayColumn) return null;
@@ -1054,9 +1055,29 @@ export default function DayColumn({
       const startMinutes = timeToMinutes(args.startTime);
       const durationMinutes = draggedTask.durationMinutes;
       if (durationMinutes > workdayMinutes) return false;
-      const blockedWindow =
-        draggedTask.type !== 'block' &&
-        overlapsBlockedWindow(startMinutes, durationMinutes, draggedTask.id);
+      if (draggedTask.type === 'block') {
+        const blockShiftPlan = buildBlockShiftPlan(
+          scheduleScopeTasks,
+          day,
+          startMinutes,
+          durationMinutes,
+          draggedTask.id,
+          workday
+        );
+        if (blockShiftPlan === null) return false;
+        moveTasksAtomic([
+          ...blockShiftPlan.moves.map((move) => ({
+            id: move.task.id,
+            startDateTime: move.startDateTime,
+          })),
+          { id: args.taskId, startDateTime: combineDayAndTime(day, args.startTime).toISOString() },
+        ]);
+        if (soundEffectsEnabled) {
+          playCalendarSnapSound();
+        }
+        return true;
+      }
+      const blockedWindow = overlapsBlockedWindow(startMinutes, durationMinutes, draggedTask.id);
       if (blockedWindow) {
         const nextSlot = findNextAvailableSlotAfter(
           scheduleScopeTasks,
@@ -1121,6 +1142,24 @@ export default function DayColumn({
       const maxDuration = workEndMinutes - nextStartMinutes;
       const clampedDuration = Math.max(slotMinutes, Math.min(args.durationMinutes, maxDuration));
       if (clampedDuration <= 0) return false;
+
+      if (targetTask.type === 'block') {
+        const blockShiftPlan = buildBlockShiftPlan(
+          scheduleScopeTasks,
+          day,
+          nextStartMinutes,
+          clampedDuration,
+          targetTask.id,
+          workday
+        );
+        if (blockShiftPlan === null) return false;
+        moveTasksAtomic(
+          blockShiftPlan.moves.map((move) => ({
+            id: move.task.id,
+            startDateTime: move.startDateTime,
+          }))
+        );
+      }
 
       updateTask(args.taskId, {
         startDateTime: combineDayAndTime(day, minutesToTime(nextStartMinutes)).toISOString(),
@@ -1298,7 +1337,14 @@ export default function DayColumn({
               hoverPreview.durationMinutes
             );
             const staggerOffsetPx = getStaggerOffsetForStartMinutes(hoverPreview.startMinutes);
-            const previewHeight = hoverPreview.isComplexShape ? complexLaneHeight : laneMinHeight;
+            const previewHeight = hoverPreview.isBlockShape
+              ? laneLayout.laneCount > 1
+                ? laneLayout.laneCount * laneLayout.laneTrackHeight +
+                  (laneLayout.laneCount - 1) * laneGap
+                : laneMinHeight
+              : hoverPreview.isComplexShape
+                ? complexLaneHeight
+                : laneMinHeight;
             const previewClipPath = hoverPreview.isComplexShape
               ? buildComplexPreviewClipPath(visibleWidth, previewHeight)
               : undefined;
@@ -1308,7 +1354,9 @@ export default function DayColumn({
                 className="pointer-events-none ui-v1-radius-md border-2 border-dashed bg-transparent"
                 style={{
                   gridColumn: `${startCol} / ${endCol}`,
-                  gridRow: `${hoverPreview.laneIndex + 1}`,
+                  gridRow: hoverPreview.isBlockShape
+                    ? `1 / ${Math.max(2, laneLayout.laneCount + 1)}`
+                    : `${hoverPreview.laneIndex + 1}`,
                   minHeight: `${previewHeight}px`,
                   width: `${visibleWidth}px`,
                   justifySelf: 'start',
@@ -1347,6 +1395,7 @@ export default function DayColumn({
                     time={slot.time}
                     defaultAssignee={defaultAssignee}
                     scheduleTasks={scheduleScopeTasks}
+                    onRequestCreate={onRequestCreateTask}
                   />
                 </div>
               );
@@ -1403,9 +1452,7 @@ export default function DayColumn({
 
       {hoverPreview?.canShove && (
         <div className="ui-hud-shell pointer-events-none absolute right-3 top-3 rounded-md px-2 py-1 text-[11px] font-semibold">
-          {shoveIntentActive || isShiftPressed
-            ? 'Release to shove'
-            : 'Drop to stack, hold to shove'}
+          {isShiftPressed ? 'Release to shove' : 'Hold Shift to shove'}
         </div>
       )}
 
@@ -1434,17 +1481,17 @@ export default function DayColumn({
             {nowLabel}
           </div>
           <div
-            className="absolute inset-y-0 w-[2.5px] -translate-x-1/2"
+            className="absolute inset-y-0 w-[2px] -translate-x-1/2"
             style={{
               background: 'var(--timeline-now)',
-              boxShadow: '0 0 0 2px var(--timeline-now-glow)',
+              boxShadow: '0 0 0 1.5px var(--timeline-now-glow)',
             }}
           />
           <div
             className="absolute top-4 size-3 -translate-x-1/2 rounded-full"
             style={{
               background: 'var(--timeline-now)',
-              boxShadow: '0 0 0 3px var(--timeline-now-glow)',
+              boxShadow: '0 0 0 2.5px var(--timeline-now-glow)',
             }}
           />
         </div>

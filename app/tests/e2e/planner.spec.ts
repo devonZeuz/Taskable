@@ -19,9 +19,11 @@ async function setStartTime(page: import('@playwright/test').Page, time: string)
 async function openTaskQuickActions(page: import('@playwright/test').Page, taskTitle: string) {
   const card = page.locator(`[data-task-title="${taskTitle}"]`).first();
   await card.scrollIntoViewIfNeeded();
-  await card.evaluate((node) => {
-    (node as HTMLElement).click();
-  });
+  const box = await card.boundingBox();
+  if (!box) {
+    throw new Error(`Could not locate task card bounds for "${taskTitle}".`);
+  }
+  await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.45);
   await expect(page.getByTestId('task-quick-actions-hub')).toBeVisible();
   return card;
 }
@@ -82,7 +84,7 @@ test('quick add cancel does not create a placeholder task', async ({ page }) => 
     return parsed.tasks?.length ?? 0;
   });
 
-  await page.locator('[data-testid^="quick-add-"]').first().click({ force: true });
+  await page.locator('button[data-testid^="quick-add-"]').first().click({ force: true });
   await expect(page.getByTestId('task-dialog-form')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByTestId('task-dialog-form')).toHaveCount(0);
@@ -105,7 +107,7 @@ test('quick add cancel does not create a placeholder task', async ({ page }) => 
 test('empty slot affordance reveals plus on hover without forcing crosshair cursor', async ({
   page,
 }) => {
-  const firstQuickAdd = page.locator('[data-testid^="quick-add-"]').first();
+  const firstQuickAdd = page.locator('button[data-testid^="quick-add-"]').first();
   await expect(firstQuickAdd).toBeVisible();
   await expect(firstQuickAdd).toHaveCSS('opacity', '0');
 
@@ -192,6 +194,44 @@ test('quick actions hub marks running task done', async ({ page }) => {
   await hub.getByRole('button', { name: 'Done' }).click();
 
   await expect(card).toContainText('Reopen');
+});
+
+test('can still open add-task dialog after starting a task', async ({ page }) => {
+  await page.getByTestId('add-task-trigger').first().click();
+  await page.getByLabel('Task Title').fill('Post Start Task');
+  await setStartTime(page, '14:00');
+  await page.getByLabel('Duration (minutes)').fill('60');
+  await page.getByTestId('create-task-submit').click();
+
+  await openTaskQuickActions(page, 'Post Start Task');
+  const hub = page.getByTestId('task-quick-actions-hub');
+  await hub.getByRole('button', { name: 'Start' }).click();
+  await expect(hub).toBeVisible();
+
+  await page.getByTestId('add-task-trigger').first().click();
+  const dialog = page.getByTestId('task-dialog-form');
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(1600);
+  await expect(dialog).toBeVisible();
+});
+
+test('quick add dialog stays open after a task is already running', async ({ page }) => {
+  await page.getByTestId('add-task-trigger').first().click();
+  await page.getByLabel('Task Title').fill('Running Anchor Task');
+  await setStartTime(page, '14:00');
+  await page.getByLabel('Duration (minutes)').fill('60');
+  await page.getByTestId('create-task-submit').click();
+
+  await openTaskQuickActions(page, 'Running Anchor Task');
+  const hub = page.getByTestId('task-quick-actions-hub');
+  await hub.getByRole('button', { name: 'Start' }).click();
+  await expect(hub).toBeVisible();
+
+  await page.locator('button[data-testid^="quick-add-"]').first().click({ force: true });
+  const dialog = page.getByTestId('task-dialog-form');
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(1600);
+  await expect(dialog).toBeVisible();
 });
 
 test('moves a scheduled task to inbox', async ({ page }) => {
@@ -469,17 +509,46 @@ test('add block defaults near now instead of 08:00 when current time is in workd
   });
 
   await page.reload();
-  const beforeCount = await page.locator('[data-task-title="BLOCK"]').count();
+  const beforeCount = await page.locator('[data-task-title="Block"]').count();
   await page.getByTestId('add-task-trigger').first().click();
   const dialog = page.getByRole('dialog').first();
-  await dialog.getByLabel('Task Title').fill('BLOCK');
   await dialog.getByRole('button', { name: 'Block' }).click();
+  await expect(dialog.getByLabel('Task Title')).toHaveValue('Block');
   await dialog.getByTestId('create-task-submit').click();
 
-  const blockCard = page.locator('[data-task-title="BLOCK"]').nth(beforeCount);
+  const blockCard = page.locator('[data-task-title="Block"]').nth(beforeCount);
   await expect(blockCard).toBeVisible();
 
   const timeLabel = (await blockCard.textContent()) ?? '';
   expect(timeLabel).not.toContain('08:00');
   expect(timeLabel).toMatch(/14:(15|30)-15:(15|30)/);
+});
+
+test('block task pushes scheduled work forward instead of being denied', async ({
+  page,
+}) => {
+  await page.getByTestId('add-task-trigger').first().click();
+  let dialog = page.getByRole('dialog').first();
+  await dialog.getByLabel('Task Title').fill('Overlap Large');
+  await dialog.getByRole('button', { name: 'Complex' }).click();
+  await setStartTime(page, '09:00');
+  await dialog.getByLabel('Duration (minutes)').fill('105');
+  await dialog.getByTestId('create-task-submit').click();
+
+  await page.getByTestId('add-task-trigger').first().click();
+  dialog = page.getByRole('dialog').first();
+  await dialog.getByRole('button', { name: 'Block' }).click();
+  await expect(dialog.getByLabel('Task Title')).toHaveValue('Block');
+  await setStartTime(page, '09:30');
+  await dialog.getByLabel('Duration (minutes)').fill('60');
+  await dialog.getByTestId('create-task-submit').click();
+
+  await expect(
+    page.getByText(/Block created\. Shifted \d+ tasks? out of the reserved time\./)
+  ).toBeVisible();
+  await expect(page.locator('[data-task-title="Block"]')).toHaveCount(1);
+  await expect(page.locator('[data-task-title="Overlap Large"]')).toBeVisible();
+
+  const shiftedTask = page.locator('[data-task-title="Overlap Large"]').first();
+  await expect(shiftedTask).not.toContainText('09:00-10:45');
 });

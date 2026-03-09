@@ -58,10 +58,10 @@ export function buildAdaptiveExtendPlan(
 
   const dayKey = getDayKeyFromDateTime(task.startDateTime);
   const startMinutes = toStartMinutes(task.startDateTime);
-  const workStartMinutes = workday.startHour * 60;
-  const workEndMinutes = workday.endHour * 60;
+  const dayStartMinutes = 0;
+  const dayEndMinutes = 24 * 60;
 
-  if (startMinutes < workStartMinutes || startMinutes + nextDurationMinutes > workEndMinutes) {
+  if (startMinutes < dayStartMinutes || startMinutes + nextDurationMinutes > dayEndMinutes) {
     return {
       reason: 'outside_workday',
       dayKey,

@@ -46,6 +46,7 @@ const STORAGE_KEY = 'taskable:notifications-enabled';
 const LEGACY_STORAGE_KEY = 'Tareva:notifications-enabled';
 const CHECK_INTERVAL_MS = 10_000;
 const TASK_ENDING_SOON_LEAD_MINUTES = 5;
+const RECENT_START_GRACE_MS = 30_000;
 
 const NotificationSettingsContext = createContext<NotificationSettingsContextType | undefined>(
   undefined
@@ -296,7 +297,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
         return false;
       }
       if (result.outcome === 'outside_workday') {
-        toast.error('Cannot extend beyond current workday.');
+        toast.error('Cannot extend past the end of the day.');
         return false;
       }
       if (result.outcome === 'conflict') {
@@ -409,6 +410,9 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
         if (!Number.isFinite(taskStartMs)) return;
 
         const diffMs = taskStartMs - now;
+        const lastStartedAtMs = task.lastStartAt ? Date.parse(task.lastStartAt) : Number.NaN;
+        const isWithinRecentStartGrace =
+          Number.isFinite(lastStartedAtMs) && now - lastStartedAtMs < RECENT_START_GRACE_MS;
 
         if (task.executionStatus !== 'running') {
           notificationLeadTimes.forEach((leadMinutes) => {
@@ -428,6 +432,7 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
         }
 
         if (task.executionStatus === 'running') {
+          if (isWithinRecentStartGrace) return;
           const scheduledEndMs = getScheduledEndTimestamp(task);
           if (scheduledEndMs !== null) {
             const remainingMs = scheduledEndMs - now;
@@ -443,7 +448,14 @@ export function NotificationSettingsProvider({ children }: { children: React.Rea
           }
         }
 
-        if (!adaptiveMode || !endPromptEnabled || task.executionStatus !== 'running') return;
+        if (
+          !adaptiveMode ||
+          !endPromptEnabled ||
+          task.executionStatus !== 'running' ||
+          isWithinRecentStartGrace
+        ) {
+          return;
+        }
 
         const scheduledEndMs = getScheduledEndTimestamp(task);
         if (scheduledEndMs === null || now < scheduledEndMs) return;

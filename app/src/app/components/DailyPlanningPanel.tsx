@@ -555,7 +555,7 @@ export default function DailyPlanningPanel({ tasks, scheduleTasks }: DailyPlanni
     }
 
     if (result.outcome === 'outside_workday') {
-      toast.error('Cannot extend beyond current workday.');
+      toast.error('Cannot extend past the end of the day.');
       return;
     }
 

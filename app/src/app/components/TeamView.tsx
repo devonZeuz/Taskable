@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type WheelEvent as ReactWheelEvent,
 } from 'react';
 import {
   ChartColumnIncreasing,
@@ -85,11 +84,18 @@ export default function TeamView() {
   const [selectedMember, setSelectedMember] = useState('all');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [activeHubTaskId, setActiveHubTaskId] = useState<string | null>(null);
+  const [createDialogDefaults, setCreateDialogDefaults] = useState<{
+    day?: string;
+    time?: string;
+    assignee?: string;
+  } | null>(null);
   const [sidebarPanel, setSidebarPanel] = useState<'inbox' | 'capacity' | 'notes' | null>(null);
   const [showBackToToday, setShowBackToToday] = useState(false);
   const [showJumpToNow, setShowJumpToNow] = useState(false);
   const [todaySnapResistanceOffset, setTodaySnapResistanceOffset] = useState(0);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const timeAxisRef = useRef<HTMLDivElement | null>(null);
+  const createDialogOpenTimerRef = useRef<number | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
   const todayRowRef = useRef<HTMLDivElement | null>(null);
   const initialScrollDoneRef = useRef(false);
@@ -339,7 +345,7 @@ export default function TeamView() {
   }, [sidebarCollapsed, sidebarPanel]);
 
   const handleTimeAxisWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey) {
         const direction = event.deltaY < 0 ? 'in' : 'out';
         adjustTimelineZoom(direction);
@@ -366,7 +372,7 @@ export default function TeamView() {
   );
 
   const applyTodaySnapResistance = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>, container: HTMLDivElement) => {
+    (event: WheelEvent, container: HTMLDivElement) => {
       const deltaY = event.deltaY;
       if (deltaY >= -0.1) return false;
       if (Math.abs(deltaY) > 60) return false;
@@ -399,7 +405,7 @@ export default function TeamView() {
   );
 
   const handleBoardWheelCapture = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       const container = boardScrollRef.current;
       if (!container) return;
 
@@ -526,6 +532,29 @@ export default function TeamView() {
       }
     };
   }, [hasTodayInRange, scrollToNow]);
+
+  useEffect(() => {
+    const timeAxis = timeAxisRef.current;
+    if (!timeAxis) return;
+
+    timeAxis.addEventListener('wheel', handleTimeAxisWheel, { passive: false });
+    return () => {
+      timeAxis.removeEventListener('wheel', handleTimeAxisWheel);
+    };
+  }, [handleTimeAxisWheel]);
+
+  useEffect(() => {
+    const container = boardScrollRef.current;
+    if (!container) return;
+
+    container.addEventListener('wheel', handleBoardWheelCapture, {
+      capture: true,
+      passive: false,
+    });
+    return () => {
+      container.removeEventListener('wheel', handleBoardWheelCapture, true);
+    };
+  }, [handleBoardWheelCapture]);
   const inboxTasks = filteredTasks.filter((task) => !task.startDateTime || task.status === 'inbox');
   const scheduledTasks = filteredTasks.filter(
     (task) => task.startDateTime && task.status !== 'inbox'
@@ -564,6 +593,46 @@ export default function TeamView() {
       setActiveHubTaskId(null);
     }
   }, [activeHubTask, activeHubTaskId]);
+
+  const openCreateDialog = useCallback(
+    (defaults?: {
+      day?: string;
+      time?: string;
+      assignee?: string;
+    }) => {
+      setEditingTask(null);
+      setActiveHubTaskId(null);
+      if (createDialogOpenTimerRef.current !== null) {
+        window.clearTimeout(createDialogOpenTimerRef.current);
+      }
+      createDialogOpenTimerRef.current = window.setTimeout(() => {
+        setCreateDialogDefaults({
+          day: defaults?.day,
+          time: defaults?.time,
+          assignee: defaults?.assignee ?? defaultAssignee,
+        });
+        createDialogOpenTimerRef.current = null;
+      }, 0);
+    },
+    [defaultAssignee]
+  );
+
+  const closeCreateDialog = useCallback(() => {
+    if (createDialogOpenTimerRef.current !== null) {
+      window.clearTimeout(createDialogOpenTimerRef.current);
+      createDialogOpenTimerRef.current = null;
+    }
+    setCreateDialogDefaults(null);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (createDialogOpenTimerRef.current !== null) {
+        window.clearTimeout(createDialogOpenTimerRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!deepLinkTaskId) return;
@@ -604,7 +673,15 @@ export default function TeamView() {
           leftControls={
             <>
               <UndoRedoControls />
-              <AddTaskDialog defaultAssignee={defaultAssignee} scheduleTasks={scheduleScopeTasks} />
+              <button
+                type="button"
+                data-testid="add-task-trigger"
+                onClick={() => openCreateDialog()}
+                className="planner-control inline-flex h-9 items-center gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-4 text-[var(--hud-accent-text)] hover:brightness-95"
+              >
+                <Plus className="size-4" />
+                Add Task
+              </button>
             </>
           }
           rightControls={
@@ -682,7 +759,15 @@ export default function TeamView() {
           <div className="pointer-events-none absolute left-3 top-3 z-20 md:left-5 md:top-5">
             <div className="pointer-events-auto flex items-center gap-2 ui-v1-radius-md border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 py-1.5 backdrop-blur-sm">
               <UndoRedoControls />
-              <AddTaskDialog defaultAssignee={defaultAssignee} scheduleTasks={scheduleScopeTasks} />
+              <button
+                type="button"
+                data-testid="add-task-trigger"
+                onClick={() => openCreateDialog()}
+                className="planner-control inline-flex h-9 items-center gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-4 text-[var(--hud-accent-text)] hover:brightness-95"
+              >
+                <Plus className="size-4" />
+                Add Task
+              </button>
               <div className="flex items-center gap-1 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface-strong)] px-1 py-1">
                 <button
                   type="button"
@@ -857,7 +942,6 @@ export default function TeamView() {
             <div
               ref={boardScrollRef}
               className="board-scroll h-0 min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto"
-              onWheelCapture={handleBoardWheelCapture}
             >
               <div
                 className="min-w-max pb-24"
@@ -876,10 +960,10 @@ export default function TeamView() {
                 >
                   <div className="sticky left-0 z-[20] w-[148px] flex-shrink-0 border-r border-[color:var(--board-line)] bg-[color:color-mix(in_srgb,var(--board-surface)_88%,transparent)] md:w-[208px]" />
                   <div
+                    ref={timeAxisRef}
                     className="relative"
                     style={{ width: `${gridWidth}px` }}
                     data-time-axis="1"
-                    onWheel={handleTimeAxisWheel}
                   >
                     <div className="grid h-[50px] items-center" style={{ gridTemplateColumns }}>
                       {timeColumns.map((col) => {
@@ -963,6 +1047,7 @@ export default function TeamView() {
                       onOpenQuickActions={(task) => setActiveHubTaskId(task.id)}
                       defaultAssignee={defaultAssignee}
                       scheduleTasks={scheduleScopeTasks}
+                      onRequestCreateTask={openCreateDialog}
                     />
                   </div>
                 ))}
@@ -999,6 +1084,17 @@ export default function TeamView() {
       )}
 
       <TaskQuickActionsHub task={activeHubTask} onClose={() => setActiveHubTaskId(null)} />
+
+      {createDialogDefaults && (
+        <AddTaskDialog
+          hideTrigger
+          defaultDay={createDialogDefaults.day}
+          defaultTime={createDialogDefaults.time}
+          defaultAssignee={createDialogDefaults.assignee ?? defaultAssignee}
+          scheduleTasks={scheduleScopeTasks}
+          onClose={closeCreateDialog}
+        />
+      )}
 
       {editingTask && (
         <AddTaskDialog

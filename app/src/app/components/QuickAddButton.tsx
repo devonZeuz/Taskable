@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from './ui/button';
 import AddTaskDialog from './AddTaskDialog';
@@ -9,6 +9,11 @@ interface QuickAddButtonProps {
   time: string;
   defaultAssignee?: string;
   scheduleTasks?: Task[];
+  onRequestCreate?: (defaults: {
+    day: string;
+    time: string;
+    assignee?: string;
+  }) => void;
 }
 
 export default function QuickAddButton({
@@ -16,10 +21,38 @@ export default function QuickAddButton({
   time,
   defaultAssignee,
   scheduleTasks,
+  onRequestCreate,
 }: QuickAddButtonProps) {
   const { tasks } = useTasks();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const openTimerRef = useRef<number | null>(null);
   const effectiveScheduleTasks = scheduleTasks ?? tasks;
+  const handleClick = () => {
+    if (onRequestCreate) {
+      onRequestCreate({
+        day,
+        time,
+        assignee: defaultAssignee,
+      });
+      return;
+    }
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current);
+    }
+    openTimerRef.current = window.setTimeout(() => {
+      setIsDialogOpen(true);
+      openTimerRef.current = null;
+    }, 0);
+  };
+
+  useEffect(
+    () => () => {
+      if (openTimerRef.current !== null) {
+        window.clearTimeout(openTimerRef.current);
+      }
+    },
+    []
+  );
 
   return (
     <>
@@ -32,15 +65,22 @@ export default function QuickAddButton({
           variant="ghost"
           size="sm"
           data-testid={`quick-add-${day}-${time}`}
-          onClick={() => setIsDialogOpen(true)}
+          onClick={handleClick}
           aria-label="Create task here"
-          className="mx-auto h-9 min-w-9 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 text-[12px] font-semibold text-[color:var(--hud-accent-soft)] opacity-0 transition-all duration-150 group-hover:opacity-60 hover:opacity-100 hover:brightness-110"
+          className="relative mx-auto h-9 min-w-9 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-2 text-[12px] font-semibold text-[color:var(--hud-accent-soft)] opacity-0 transition-all duration-150 group-hover:opacity-60 hover:opacity-100 hover:brightness-110"
         >
+          <span
+            aria-hidden="true"
+            data-onboarding-quick-add-glyph="true"
+            className="pointer-events-none absolute inset-0 hidden items-center justify-center text-[22px] font-bold leading-none"
+          >
+            +
+          </span>
           <Plus className="size-4" />
         </Button>
       </div>
 
-      {isDialogOpen && (
+      {!onRequestCreate && isDialogOpen && (
         <AddTaskDialog
           hideTrigger
           defaultDay={day}

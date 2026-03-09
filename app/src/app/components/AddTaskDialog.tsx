@@ -51,6 +51,7 @@ import {
   minutesToTime,
   timeToMinutes,
 } from '../services/scheduling';
+import { buildBlockShiftPlan } from '../services/blockScheduling';
 
 interface AddTaskDialogProps {
   defaultDay?: string;
@@ -60,10 +61,14 @@ interface AddTaskDialogProps {
   editTask?: Task;
   hideTrigger?: boolean;
   playSnapOnSubmit?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onClose?: () => void;
 }
 
 const DURATION_PRESET_MINUTES = [15, 30, 45, 60, 90, 120];
+const DEFAULT_OPEN_DISMISS_GUARD_MS = 320;
+const RUNNING_TASK_OPEN_DISMISS_GUARD_MS = 2500;
 const TASK_TYPE_HELP: Record<'quick' | 'large' | 'block', string> = {
   quick: 'Quick: short focused task that fits in a standard slot.',
   large: 'Complex: multi-step work with subtasks and deeper tracking.',
@@ -78,9 +83,11 @@ export default function AddTaskDialog({
   editTask,
   hideTrigger = false,
   playSnapOnSubmit,
+  open: controlledOpen,
+  onOpenChange,
   onClose,
 }: AddTaskDialogProps) {
-  const { addTask, updateTask, tasks } = useTasks();
+  const { addTask, moveTasksAtomic, updateTask, tasks } = useTasks();
   const { members: localMembers } = useTeamMembers();
   const {
     enabled: cloudEnabled,
@@ -104,13 +111,20 @@ export default function AddTaskDialog({
   const { theme } = useAppTheme();
   const activeSwatches = APP_THEME_TASK_SWATCHES[theme];
   const useCloudMembers = cloudEnabled && Boolean(cloudToken && activeOrgId);
+  const openedAtRef = useRef<number>(0);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const members = useMemo(
     () => buildEffectiveMembers(localMembers, cloudMembers, useCloudMembers),
     [cloudMembers, localMembers, useCloudMembers]
   );
   const scheduleScopeTasks = scheduleTasks ?? tasks;
   const shouldPlaySnapOnSubmit = playSnapOnSubmit ?? !editTask;
-  const [open, setOpen] = useState(Boolean(editTask) || hideTrigger);
+  const isOpenControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(Boolean(editTask) || hideTrigger);
+  const open = isOpenControlled ? Boolean(controlledOpen) : internalOpen;
+  const openDismissGuardMs = tasks.some((task) => task.executionStatus === 'running')
+    ? RUNNING_TASK_OPEN_DISMISS_GUARD_MS
+    : DEFAULT_OPEN_DISMISS_GUARD_MS;
 
   const now = new Date();
   const todayStart = new Date(now);
@@ -303,27 +317,59 @@ export default function AddTaskDialog({
     [formData.durationMinutes, formData.title, formData.type, slotMinutes]
   );
 
+  const setDialogOpen = (nextOpen: boolean) => {
+    if (!isOpenControlled) {
+      setInternalOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  };
+
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setAssigneePickerOpen(false);
+    setAssigneeQuery('');
+    onClose?.();
+  };
+
+  const shouldIgnoreImmediateDismiss = () =>
+    open && Date.now() - openedAtRef.current < openDismissGuardMs;
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
       setShowAdvanced(!layoutV1Enabled);
       if (!editTask) {
         const randomThemeColor = getRandomThemeColor(theme);
-        setFormData((prev) => ({ ...prev, color: randomThemeColor }));
-        const hasThemeColor = activeSwatches.some(
-          (swatch) => swatch.value.toLowerCase() === formData.color.toLowerCase()
-        );
-        if (!hasThemeColor) {
-          setFormData((prev) => ({ ...prev, color: randomThemeColor }));
-        }
+        setFormData({
+          title: 'New Task',
+          description: '',
+          day: initialDayKey,
+          startTime: initialStartTime,
+          durationMinutes: initialDurationMinutes,
+          color: activeSwatches.some(
+            (swatch) => swatch.value.toLowerCase() === randomThemeColor.toLowerCase()
+          )
+            ? randomThemeColor
+            : getRandomThemeColor(theme),
+          type: 'quick',
+          subtasks: [],
+          assignedTo: defaultAssignee || 'unassigned',
+          scheduleLater: false,
+        });
       }
+      setDialogOpen(true);
+      return;
     }
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      setAssigneePickerOpen(false);
-      setAssigneeQuery('');
-      onClose?.();
+    if (shouldIgnoreImmediateDismiss()) {
+      return;
     }
+    closeDialog();
   };
+
+  useEffect(() => {
+    if (open) {
+      openedAtRef.current = Date.now();
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open || !editTaskId || !cloudEnabled || !cloudToken || !activeOrgId) {
@@ -429,6 +475,23 @@ export default function AddTaskDialog({
       return;
     }
 
+    const blockShiftPlan =
+      formData.type === 'block' && !formData.scheduleLater
+        ? buildBlockShiftPlan(
+            scheduleScopeTasks,
+            formData.day,
+            timeToMinutes(formData.startTime),
+            formData.durationMinutes,
+            editTask?.id,
+            workday
+          )
+        : null;
+
+    if (formData.type === 'block' && !formData.scheduleLater && blockShiftPlan === null) {
+      toast.error('This block collides with reserved time or leaves no later slot for the work it covers.');
+      return;
+    }
+
     const normalizedSubtasks = formData.type === 'large' ? formData.subtasks : [];
     const assignedToValue = formData.assignedTo === 'unassigned' ? undefined : formData.assignedTo;
     const startDateTime = formData.scheduleLater
@@ -438,7 +501,8 @@ export default function AddTaskDialog({
       ? (editTask?.timeZone ?? getLocalTimeZone())
       : editTask?.timeZone;
 
-    const normalizedTitle = formData.title.trim() || 'New Task';
+    const normalizedTitle =
+      formData.title.trim() || (formData.type === 'block' ? 'Block' : 'New Task');
 
     if (editTask) {
       updateTask(editTask.id, {
@@ -475,13 +539,30 @@ export default function AddTaskDialog({
       });
     }
 
-    setOpen(false);
-    onClose?.();
+    if (blockShiftPlan && blockShiftPlan.moves.length > 0) {
+      moveTasksAtomic(
+        blockShiftPlan.moves.map((move) => ({
+          id: move.task.id,
+          startDateTime: move.startDateTime,
+        }))
+      );
+    }
+
+    closeDialog();
     if (shouldPlaySnapOnSubmit && soundEffectsEnabled) {
       window.setTimeout(() => {
         playCalendarSnapSound();
       }, 140);
     }
+    if (blockShiftPlan && blockShiftPlan.moves.length > 0) {
+      toast.success(
+        `${editTask ? 'Block updated' : 'Block created'}. Shifted ${
+          blockShiftPlan.moves.length
+        } task${blockShiftPlan.moves.length === 1 ? '' : 's'} out of the reserved time.`
+      );
+      return;
+    }
+
     toast.success(editTask ? 'Task updated successfully!' : 'Task created successfully!');
   };
 
@@ -545,9 +626,17 @@ export default function AddTaskDialog({
         };
       }
 
+      const normalizedCurrentTitle = prev.title.trim().toLowerCase();
+      const shouldReplaceDefaultTitle =
+        !editTask &&
+        (normalizedCurrentTitle === '' ||
+          normalizedCurrentTitle === 'new task' ||
+          normalizedCurrentTitle === 'block');
+
       return {
         ...prev,
         ...seededValues,
+        title: shouldReplaceDefaultTitle ? (type === 'block' ? 'Block' : 'New Task') : prev.title,
         type,
         subtasks: type === 'large' ? prev.subtasks : [],
       };
@@ -621,8 +710,8 @@ export default function AddTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        {!editTask && !hideTrigger && (
+      {!editTask && !hideTrigger ? (
+        <DialogTrigger asChild>
           <Button
             data-testid="add-task-trigger"
             className="planner-control h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-accent-bg)] px-4 text-[var(--hud-accent-text)] hover:brightness-95"
@@ -630,12 +719,20 @@ export default function AddTaskDialog({
             <Plus className="size-4" />
             Add Task
           </Button>
-        )}
-      </DialogTrigger>
+        </DialogTrigger>
+      ) : null}
       <DialogContent
         data-testid="task-dialog-content"
         className="max-h-[90vh] max-w-[calc(100vw-1.5rem)] overflow-hidden ui-v1-radius-lg border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface)_96%,transparent)] ui-v1-elevation-3 backdrop-blur-md sm:max-w-[820px]"
         style={{ padding: 0 }}
+        onInteractOutside={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          window.requestAnimationFrame(() => {
+            titleInputRef.current?.focus();
+            titleInputRef.current?.select();
+          });
+        }}
       >
         <DialogHeader className="gap-1.5 border-b border-[color:color-mix(in_srgb,var(--hud-border)_62%,transparent)] px-5 py-4 pr-12">
           <DialogTitle className="text-[19px] tracking-[-0.025em] text-[color:var(--hud-text)]">
@@ -774,6 +871,7 @@ export default function AddTaskDialog({
             <Label htmlFor="title">Task Title</Label>
             <Input
               id="title"
+              ref={titleInputRef}
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               placeholder="e.g., Germany Invoices"
@@ -1308,8 +1406,10 @@ export default function AddTaskDialog({
               variant="outline"
               className="h-9 ui-v1-radius-sm border-[color:var(--hud-border)]"
               onClick={() => {
-                setOpen(false);
-                onClose?.();
+                if (shouldIgnoreImmediateDismiss()) {
+                  return;
+                }
+                closeDialog();
               }}
             >
               Cancel

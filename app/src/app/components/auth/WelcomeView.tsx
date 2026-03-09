@@ -104,39 +104,39 @@ const PREVIEW_CARDS: PreviewCard[] = [
 
 const VALUE_PILLARS = [
   {
-    title: 'Capture real work',
+    title: 'Capture first',
     description:
-      'Start from inbox-style capture or Outlook-adjacent intake instead of rebuilding the day from memory.',
+      'Drop work into Inbox before you decide exactly when it belongs.',
   },
   {
-    title: 'Plan against time',
+    title: 'Plan against reality',
     description:
-      'Place work on a real timeline, see overload before it happens, and adjust the day by dragging work where it belongs.',
+      'See capacity, place tasks on a timeline, and build a day that can actually hold.',
   },
   {
     title: 'Execute visibly',
     description:
-      'Move tasks through running, paused, and done states so the day reflects reality instead of stale plans.',
+      'Start, pause, extend, and complete work so the plan stays aligned with reality.',
   },
 ] as const;
 
 const TRUST_LINKS = [
   {
     to: '/demo',
-    title: '90-second product tour',
-    description: 'Show the workflow quickly before asking someone to explore the app.',
+    title: 'See how it works',
+    description: 'Watch the workflow in under two minutes.',
     testId: 'welcome-demo-link',
   },
   {
     to: '/security',
-    title: 'Security and privacy summary',
-    description: 'Explain local-first usage, cloud auth, sync safety, and telemetry boundaries.',
+    title: 'Privacy and security',
+    description: 'Understand local mode, cloud sync, and how your data is handled.',
     testId: 'welcome-security-link',
   },
   {
     to: '/support',
-    title: 'Support channel',
-    description: 'Give users one place to get help and one packet to copy when they hit an issue.',
+    title: 'Get help',
+    description: 'Contact support or report an issue.',
     testId: 'welcome-support-link',
   },
 ] as const;
@@ -372,7 +372,7 @@ export default function WelcomeView() {
       <main className="relative z-10 mx-auto flex w-full max-w-[1440px] flex-1 flex-col items-center gap-8 px-6 pb-10 pt-4">
         <section className="max-w-[860px] text-center">
           <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--hud-muted)]">
-            Execution-first planner
+            Timeline-based planner
           </p>
           <h1 className="mt-4 text-center text-[clamp(48px,6.2vw,82px)] font-bold leading-[0.94] tracking-[-0.05em]">
             Turn incoming work
@@ -387,19 +387,19 @@ export default function WelcomeView() {
           </h1>
 
           <p className="mx-auto mt-4 max-w-[620px] text-center text-[16px] leading-relaxed text-[var(--hud-muted)]">
-            Tareva helps you capture tasks, place them on a real timeline, and run them with live
-            execution states so your plan reflects the day as it actually unfolds.
+            Tareva helps you capture tasks, place them on a real timeline, and manage them as the
+            day changes. It is built for people whose work does not stay neat for long.
           </p>
 
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
             <span className="rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-1">
-              Local-first
+              Try on this device
             </span>
             <span className="rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-1">
               Cloud sync optional
             </span>
             <span className="rounded-full border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 py-1">
-              Built for execution
+              Built for changing days
             </span>
           </div>
         </section>
@@ -436,14 +436,13 @@ export default function WelcomeView() {
             className="h-[52px] rounded-[16px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-6 text-[14px] font-semibold text-[var(--hud-text)] hover:bg-[var(--hud-surface-soft)]"
           >
             <Link to="/demo" data-testid="welcome-tour-link">
-              Watch the 90-second tour
+              Watch demo
             </Link>
           </Button>
         </div>
 
         <p className="text-center text-[14px] text-[var(--hud-muted)]">
-          Local mode keeps data on this device. Cloud mode adds sync, team views, and admin
-          controls.
+          Try Tareva on this device first. Add cloud sync later if you need shared access.
         </p>
 
         <section
@@ -551,16 +550,33 @@ export default function WelcomeView() {
         <section className="grid w-full max-w-[1280px] gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
           <article className="rounded-[24px] border border-[color:var(--hud-border)] bg-[color:color-mix(in_srgb,var(--hud-surface-strong)_86%,transparent)] p-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--hud-muted)]">
-              Value in the first session
+              More than a scheduling app
             </p>
             <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.03em] text-[var(--hud-text)]">
-              Show the day, then shorten the path to value.
+              Most scheduling tools help you place work on a calendar.
             </h2>
             <p className="mt-3 max-w-[720px] text-sm leading-relaxed text-[var(--hud-muted)]">
-              The landing page, demo tour, onboarding, support, and security summary should all tell the
-              same story: Tareva is not another static task list. It is a calmer way to plan and execute
-              real work.
+              Tareva helps you capture work, schedule it realistically, and adjust it while the day
+              is actually happening. It is designed to help you run the day, not just place items on
+              a timeline.
             </p>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-[18px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
+                <p className="text-sm font-semibold text-[var(--hud-text)]">
+                  Scheduling apps focus on where work should go.
+                </p>
+              </div>
+              <div className="rounded-[18px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
+                <p className="text-sm font-semibold text-[var(--hud-text)]">
+                  Tareva also shows what is running now, what slipped, and what needs to move next.
+                </p>
+              </div>
+              <div className="rounded-[18px] border border-[color:var(--hud-border)] bg-[var(--hud-surface)] p-4">
+                <p className="text-sm font-semibold text-[var(--hud-text)]">
+                  It is built for execution, not just calendar placement.
+                </p>
+              </div>
+            </div>
           </article>
 
           <div className="space-y-4">
@@ -599,7 +615,7 @@ export default function WelcomeView() {
 
       <footer className="relative z-10 border-t border-[color:var(--hud-border)] px-6 py-4 md:px-9">
         <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-2 text-[12px] text-[var(--hud-muted)] md:flex-row md:items-center md:justify-between">
-          <p>Capture work, place it on a real day, and execute it visibly.</p>
+          <p>Schedule work, run the day, and adjust when reality changes.</p>
           <div className="flex flex-wrap items-center gap-3">
             <Link to="/demo" className="transition hover:text-[var(--hud-text)]">
               Demo
