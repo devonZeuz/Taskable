@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useCloudSync } from '../../context/CloudSyncContext';
 import { Avatar, AvatarFallback } from '../ui/avatar';
@@ -9,7 +9,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import SettingsNav, { type SettingsSection, type SettingsSectionKey } from './SettingsNav';
@@ -25,6 +24,7 @@ import {
   CLOSE_SETTINGS_EVENT,
   OPEN_SETTINGS_EVENT,
   type OpenSettingsEventDetail,
+  requestOpenSettings,
 } from '../../services/settingsBridge';
 
 const SETTINGS_DRAWER_OPEN_STORAGE_KEY = 'taskable:settings-drawer-open';
@@ -86,6 +86,7 @@ export function SettingsDrawerInner({
   const { user } = useCloudSync();
   const [open, setOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSectionKey>(loadStoredSection);
+  const openTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Legacy cleanup: this key previously persisted dialog open-state across auth sessions.
@@ -129,6 +130,15 @@ export function SettingsDrawerInner({
     };
   }, []);
 
+  useEffect(
+    () => () => {
+      if (openTimerRef.current !== null) {
+        window.clearTimeout(openTimerRef.current);
+      }
+    },
+    []
+  );
+
   const activeSectionMeta = useMemo(
     () =>
       SETTINGS_SECTIONS.find((section) => section.key === activeSection) ?? SETTINGS_SECTIONS[0],
@@ -137,27 +147,41 @@ export function SettingsDrawerInner({
 
   const initials = (user?.name?.trim().charAt(0) || 'P').toUpperCase();
 
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          data-testid={triggerTestId}
-          variant="ghost"
-          className={`planner-control h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 text-[color:var(--hud-text)] hover:bg-[var(--hud-surface-soft)] hover:text-[color:var(--hud-text)] ${
-            triggerClassName ?? ''
-          }`}
-        >
-          <Avatar className="size-6 border border-[color:var(--hud-border)]">
-            <AvatarFallback className="bg-[var(--hud-accent-soft)] text-[10px] font-semibold text-[var(--hud-accent-soft-text)]">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          {!compact && <span className="text-[12px] font-semibold">Settings</span>}
-          <Settings className="size-4 text-[color:var(--hud-muted)]" />
-        </Button>
-      </DialogTrigger>
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+  };
 
+  const requestOpenFromTrigger = () => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current);
+    }
+    openTimerRef.current = window.setTimeout(() => {
+      requestOpenSettings({ section: activeSection });
+      openTimerRef.current = null;
+    }, 0);
+  };
+
+  return (
+    <>
+      <Button
+        type="button"
+        data-testid={triggerTestId}
+        variant="ghost"
+        onClick={requestOpenFromTrigger}
+        className={`planner-control h-9 gap-2 ui-v1-radius-sm border border-[color:var(--hud-border)] bg-[var(--hud-surface)] px-3 text-[color:var(--hud-text)] hover:bg-[var(--hud-surface-soft)] hover:text-[color:var(--hud-text)] ${
+          triggerClassName ?? ''
+        }`}
+      >
+        <Avatar className="size-6 border border-[color:var(--hud-border)]">
+          <AvatarFallback className="bg-[var(--hud-accent-soft)] text-[10px] font-semibold text-[var(--hud-accent-soft-text)]">
+            {initials}
+          </AvatarFallback>
+        </Avatar>
+        {!compact && <span className="text-[12px] font-semibold">Settings</span>}
+        <Settings className="size-4 text-[color:var(--hud-muted)]" />
+      </Button>
+
+      <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         data-testid="settings-drawer"
         className="h-[min(90vh,860px)] w-[min(1180px,96vw)] max-w-none gap-0 overflow-hidden border-[color:var(--hud-border)] bg-[var(--hud-surface)] text-[color:var(--hud-text)] ui-v1-elevation-3 backdrop-blur-xl sm:max-w-none"
@@ -225,6 +249,7 @@ export function SettingsDrawerInner({
           </div>
         </div>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }

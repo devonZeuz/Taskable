@@ -1,6 +1,46 @@
 import { expect, test } from '@playwright/test';
 import { bootstrapLocalMode } from './storageBootstrap';
 
+test('settings dialog stays open after a direct trigger click', async ({ page }) => {
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
+  await page.goto('/planner');
+
+  const tutorialModal = page.getByTestId('onboarding-tutorial-modal');
+  if (await tutorialModal.isVisible().catch(() => false)) {
+    await page.getByTestId('onboarding-tutorial-skip').first().click({ force: true });
+    await expect(tutorialModal).toBeHidden();
+  }
+
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+  const settingsTrigger = page.locator('[data-testid="toprail-settings"]').first();
+  await expect(settingsTrigger).toBeVisible();
+  await settingsTrigger.click({ force: true });
+  await expect(settingsDialog).toBeVisible();
+  await page.waitForTimeout(1600);
+  await expect(settingsDialog).toBeVisible();
+});
+
+test('settings dialog stays open while a task is running', async ({ page }) => {
+  await bootstrapLocalMode(page, { seedDemoTasks: true });
+  await page.goto('/planner');
+
+  const tutorialModal = page.getByTestId('onboarding-tutorial-modal');
+  if (await tutorialModal.isVisible().catch(() => false)) {
+    await page.getByTestId('onboarding-tutorial-skip').first().click({ force: true });
+    await expect(tutorialModal).toBeHidden();
+  }
+
+  await page.getByTestId('task-action-strip-3').click();
+
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+  const settingsTrigger = page.locator('[data-testid="toprail-settings"]').first();
+  await expect(settingsTrigger).toBeVisible();
+  await settingsTrigger.click({ force: true });
+  await expect(settingsDialog).toBeVisible();
+  await page.waitForTimeout(1600);
+  await expect(settingsDialog).toBeVisible();
+});
+
 test('integration credentials inputs are interactive inside settings dialog', async ({ page }) => {
   await bootstrapLocalMode(page, { seedDemoTasks: true });
   await page.goto('/planner');

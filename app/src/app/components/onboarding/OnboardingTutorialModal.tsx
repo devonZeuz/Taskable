@@ -198,6 +198,7 @@ export default function OnboardingTutorialModal({
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const onboardingTaskIdRef = useRef<string | null>(null);
   const highlightedElementsRef = useRef<HTMLElement[]>([]);
+  const wasOpenRef = useRef(open);
   const backdropMaskId = useId().replace(/:/g, '-');
 
   const clearStepHighlights = () => {
@@ -449,18 +450,26 @@ export default function OnboardingTutorialModal({
   }, [mode, open, steps.length]);
 
   useEffect(() => {
-    if (!open) {
-      requestCloseSettings();
-      closeTaskDialogIfOpen();
-      closeQuickActionsIfOpen();
-      cleanupOnboardingTask();
-      clearStepHighlights();
-      setArrowRects([]);
-      if (typeof document !== 'undefined') {
-        delete document.documentElement.dataset.onboardingStep;
-      }
+    if (open) {
+      wasOpenRef.current = true;
       return;
     }
+    if (!wasOpenRef.current) return;
+
+    wasOpenRef.current = false;
+    requestCloseSettings();
+    closeTaskDialogIfOpen();
+    closeQuickActionsIfOpen();
+    cleanupOnboardingTask();
+    clearStepHighlights();
+    setArrowRects([]);
+    if (typeof document !== 'undefined') {
+      delete document.documentElement.dataset.onboardingStep;
+    }
+  }, [cleanupOnboardingTask, closeQuickActionsIfOpen, closeTaskDialogIfOpen, open]);
+
+  useEffect(() => {
+    if (!open) return;
 
     document.documentElement.dataset.onboardingStep = currentStep.id;
     currentStep.prepare?.();
